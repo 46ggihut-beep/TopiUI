@@ -51,15 +51,13 @@ Thư viện UI cho Roblox (Luau) phong cách **Fluent Dark**: cửa sổ kính m
 
 ## Chạy demo
 
-Thay `YOUR_USER` và `YOUR_REPO` bằng tên tài khoản và repo GitHub của bạn, rồi chạy:
+Chạy dòng sau trong executor:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/Example.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/Example.lua"))()
 ```
 
 Demo gồm 4 tab: **Main** (WalkSpeed, JumpPower, Infinite Jump, nút), **Visual** (Fullbright, giờ trong ngày, FOV), **Components** (Input, Dropdown một / nhiều lựa chọn), **Settings** (độ trong suốt UI, quản lý config, gỡ UI).
-
-> Nếu repo ở nhánh khác `main` (ví dụ `master`) thì đổi `main` trong link cho đúng.
 
 ---
 
@@ -68,13 +66,13 @@ Demo gồm 4 tab: **Main** (WalkSpeed, JumpPower, Infinite Jump, nút), **Visual
 Tải thư viện về biến `Library` bằng một dòng:
 
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/TopiUI.lua"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/TopiUI_Lib.lua"))()
 ```
 
-Hoặc nếu bạn đã lưu file `TopiUI.lua` vào thư mục workspace của executor:
+Hoặc nếu bạn đã lưu file `TopiUI_Lib.lua` vào thư mục workspace của executor:
 
 ```lua
-local Library = loadstring(readfile("TopiUI.lua"))()
+local Library = loadstring(readfile("TopiUI_Lib.lua"))()
 ```
 
 Sau đó tạo cửa sổ và các thành phần như hướng dẫn bên dưới.
@@ -84,7 +82,7 @@ Sau đó tạo cửa sổ và các thành phần như hướng dẫn bên dướ
 ## Bắt đầu nhanh
 
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/TopiUI.lua"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/TopiUI_Lib.lua"))()
 
 local Window = Library:CreateWindow({
 	Title = "Tên Hub",
@@ -410,7 +408,7 @@ Các hàm điều khiển:
 Muốn đổi tên thư mục hoặc file, đặt **trước khi tạo cửa sổ** và gọi `LoadConfig()` lại:
 
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/TopiUI.lua"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/TopiUI_Lib.lua"))()
 
 Library.ConfigFolder = "MyHub"
 Library.ConfigSuffix = "-MyHub.json"
@@ -460,7 +458,7 @@ end })
 ## Ví dụ đầy đủ
 
 ```lua
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/YOUR_USER/YOUR_REPO/main/TopiUI.lua"))()
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/TopiUI_Lib.lua"))()
 
 local Window = Library:CreateWindow({
 	Title = "TopiHub",
@@ -588,12 +586,12 @@ Bạn chạy script hai lần. Gọi `Library:Unload()` trên bản cũ trước
 
 ```
 .
-├── TopiUI.lua    # Thư viện UI
+├── TopiUI_Lib.lua # Thư viện UI
 ├── Example.lua   # Script demo (load thư viện từ GitHub)
 └── README.md
 ```
 
-Nhớ thay `YOUR_USER` / `YOUR_REPO` trong các link `raw.githubusercontent.com` (cả trong `README.md` và `Example.lua`) bằng thông tin repo thật của bạn.
+Repo: <https://github.com/46ggihut-beep/TopiUI>
 
 ---
 
