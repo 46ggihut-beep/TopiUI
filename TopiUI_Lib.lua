@@ -1474,6 +1474,17 @@ function Library:CreateWindow(cfg)
 		Parent = TabArea, Position = UDim2.fromOffset(0, 11), Size = UDim2.fromOffset(3, 16),
 		BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 2,
 	}, { Corner(2) })
+	-- vi tri thanh xanh = vi tri tab trong danh sach (34 cao + 4 cach) tru di do danh sach tab da cuon
+	local selTween
+	local function SelectorY(i)
+		return (i - 1) * 38 + 11 - TabScroll.CanvasPosition.Y
+	end
+	Connect(TabScroll:GetPropertyChangedSignal("CanvasPosition"), function()
+		if Window.Selected then
+			if selTween then selTween:Cancel() selTween = nil end
+			Selector.Position = UDim2.fromOffset(0, SelectorY(Window.Selected))
+		end
+	end)
 
 	local TabDisplay = NewLabel(Main, "", 28, Enum.FontWeight.SemiBold, Theme.Text, 0, {
 		Position = UDim2.fromOffset(tabWidth + 28, TITLE_H + 12), Size = UDim2.new(1, -(tabWidth + 40), 0, 34),
@@ -1512,7 +1523,7 @@ function Library:CreateWindow(cfg)
 			if t.Icon then Tween(t.Icon, 0.15, { ImageTransparency = sel and 0 or 0.4 }) end
 			t.Page.Visible = sel and not self._searching
 		end
-		TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, (i - 1) * 38 + 11) })
+		selTween = TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, SelectorY(i)) })
 		if not self._searching then TabDisplay.Text = target.Title end
 		TabDisplay.TextTransparency = 1
 		Tween(TabDisplay, 0.3, { TextTransparency = 0 })
