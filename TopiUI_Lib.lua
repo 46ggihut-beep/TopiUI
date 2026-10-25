@@ -33,6 +33,105 @@ local function SafeDestroy(inst)
 end
 
 ----------------------------------------------------------------------
+-- Config (save / load) - file: Topi/<TenNguoiChoi>-Topi.json
+----------------------------------------------------------------------
+Library.ConfigFolder = "Topi"
+Library.ConfigSuffix = "-Topi.json"
+Library.AutoSave = true
+Library.Settings = {}
+local SavePending = false
+
+local function HasFS()
+	return type(writefile) == "function" and type(readfile) == "function"
+		and type(isfolder) == "function" and type(makefolder) == "function"
+end
+
+function Library:GetConfigPath()
+	local name = "Player"
+	pcall(function() name = Players.LocalPlayer.Name end)
+	return self.ConfigFolder .. "/" .. name .. self.ConfigSuffix
+end
+
+-- Doc file config vao Library.Settings (khong dong vao UI, dung de lay gia tri mac dinh luc tao element)
+function Library:LoadConfig()
+	if not HasFS() then return self.Settings end
+	local ok, data = pcall(function()
+		local path = self:GetConfigPath()
+		if type(isfile) == "function" and not isfile(path) then return nil end
+		return HttpService:JSONDecode(readfile(path))
+	end)
+	if ok and type(data) == "table" then
+		self.Settings = data
+	end
+	return self.Settings
+end
+
+-- Ghi toan bo gia tri hien tai cua cac option ra file
+function Library:SaveConfig()
+	SavePending = false
+	if not HasFS() then return false end
+	local data = {}
+	for k, v in pairs(self.Settings) do data[tostring(k)] = v end
+	for idx, o in pairs(self.Options) do
+		if o.Value ~= nil then
+			if o.Type == "Dropdown" and o.Multi then
+				local list = {}
+				for _, v in ipairs(o.Values) do
+					if o.Value[v] then table.insert(list, v) end
+				end
+				data[tostring(idx)] = list
+			else
+				data[tostring(idx)] = o.Value
+			end
+		end
+	end
+	self.Settings = data
+	local ok = pcall(function()
+		if not isfolder(self.ConfigFolder) then makefolder(self.ConfigFolder) end
+		writefile(self:GetConfigPath(), HttpService:JSONEncode(data))
+	end)
+	return ok
+end
+
+-- Doc lai file va ap len cac option dang co (kich callback)
+function Library:ApplyConfig()
+	self:LoadConfig()
+	for idx, o in pairs(self.Options) do
+		local v = self.Settings[tostring(idx)]
+		if v ~= nil and o.SetValue then
+			pcall(function()
+				if o.Type == "Slider" then o:SetValue(v, false, true) else o:SetValue(v) end
+			end)
+		end
+	end
+end
+
+function Library:DeleteConfig()
+	self.Settings = {}
+	if HasFS() and type(isfile) == "function" and type(delfile) == "function" then
+		pcall(function()
+			local path = self:GetConfigPath()
+			if isfile(path) then delfile(path) end
+		end)
+	end
+end
+
+-- Gom nhieu thay doi lien tiep thanh 1 lan ghi file
+function Library:_QueueSave()
+	if SavePending or self.Unloaded or not self.AutoSave then return end
+	SavePending = true
+	task.delay(0.6, function()
+		if SavePending and not Library.Unloaded then Library:SaveConfig() end
+	end)
+end
+
+local function ConfigValue(idx)
+	return Library.Settings[tostring(idx)]
+end
+
+Library:LoadConfig()
+
+----------------------------------------------------------------------
 -- Theme (Fluent Dark) - giu nguyen mau goc
 ----------------------------------------------------------------------
 local Theme = {
@@ -178,7 +277,7 @@ local function GetGui()
 end
 
 ----------------------------------------------------------------------
--- Flow animation (UI <-> nut toggle, kieu giot nuoc hut vao / nhả ra)
+-- Flow animation (UI <-> nut toggle, kieu giot nuoc hut vao / nha ra)
 ----------------------------------------------------------------------
 local FlowAnim = {}
 FlowAnim.__index = FlowAnim
@@ -248,6 +347,8 @@ end
 
 -- Vong song lan ra tu toggle
 function FlowAnim:_Ripple()
+	-- [VA 2] khong tao GUI moi sau khi Unload
+	if Library.Unloaded then return end
 	local gui = GetGui()
 	local c, ts = self:_TogglePos()
 	local r = Create("Frame", {
@@ -281,7 +382,7 @@ function FlowAnim:Hide(onDone)
 	end
 
 	task.delay(0.12, function()
-		if not main.Parent then
+		if Library.Unloaded or not main.Parent then
 			self.Playing = false
 			if onDone then onDone() end
 			return
@@ -297,6 +398,11 @@ function FlowAnim:Hide(onDone)
 		}):Play()
 		t:Play()
 		t.Completed:Connect(function()
+			-- [VA 2] UI da bi Unload trong luc animation chay
+			if Library.Unloaded then
+				self.Playing = false
+				return
+			end
 			if main.Parent then
 				main.Visible = false
 				main.Size = W._hideSize
@@ -346,7 +452,7 @@ function FlowAnim:Show(onDone)
 	end
 
 	task.delay(0.1, function()
-		if not main.Parent then
+		if Library.Unloaded or not main.Parent then
 			self.Playing = false
 			return
 		end
@@ -376,14 +482,34 @@ end
 local function Fire(o, ...)
 	if o.Callback then task.spawn(o.Callback, ...) end
 	for _, f in ipairs(o.Changed) do task.spawn(f, ...) end
+	if o.Idx ~= nil then Library:_QueueSave() end
 end
 
 ----------------------------------------------------------------------
 -- Element base
 ----------------------------------------------------------------------
+-- Thu tu hien thi co dinh cho moi container (de co the nhac element ra / tra lai dung cho khi tim kiem)
+local function NextOrder(parent)
+	local n = (parent:GetAttribute("_n") or 0) + 1
+	parent:SetAttribute("_n", n)
+	return n
+end
+
+-- Tim ten + so thu tu cua tab chua element nay
+local function TabInfo(inst)
+	local p = inst
+	while p do
+		local t = p:GetAttribute("TabTitle")
+		if t then return t, p:GetAttribute("TabIndex") or 0 end
+		p = p.Parent
+	end
+	return "", 0
+end
+
 local function Element(parent, title, desc, rightW, icon)
+	local order = NextOrder(parent)
 	local el = Create("Frame", {
-		Parent = parent, Size = UDim2.new(1, 0, 0, 34), AutomaticSize = Enum.AutomaticSize.Y,
+		Parent = parent, Size = UDim2.new(1, 0, 0, 34), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = order,
 		BackgroundColor3 = Theme.Element, BackgroundTransparency = 0.87, BorderSizePixel = 0,
 	}, { Corner(6), Stroke(Theme.ElementBorder, 1, 0.5) })
 
@@ -409,7 +535,12 @@ local function Element(parent, title, desc, rightW, icon)
 	local descLbl = NewLabel(holder, desc or "", 11, Enum.FontWeight.Regular, Theme.Text, 0.4, {
 		LayoutOrder = 2, Visible = (desc ~= nil and desc ~= ""),
 	})
-	table.insert(Registry, { el = el, title = title or "" })
+	local tabTitle, tabIdx = TabInfo(parent)
+	table.insert(Registry, {
+		el = el, parent = parent, order = order,
+		title = title or "", desc = desc or "",
+		tabTitle = tabTitle, tabIdx = tabIdx, idx = #Registry + 1,
+	})
 	return el, titleLbl, descLbl, holder
 end
 
@@ -544,8 +675,11 @@ function Elements:AddToggle(idx, cfg)
 		})
 	end, nil, Rest)
 
-	T:SetValue(cfg.Default or false, true)
+	local saved = ConfigValue(idx)
+	if type(saved) ~= "boolean" then saved = cfg.Default or false end
+	T:SetValue(saved, true)
 	T._ready = true
+	T.Idx = idx
 	Library.Options[idx] = T
 	return T
 end
@@ -687,7 +821,10 @@ function Elements:AddSlider(idx, cfg)
 			end
 		end
 	end)
-	S:SetValue(cfg.Default or S.Min, true)
+	local saved = ConfigValue(idx)
+	if type(saved) ~= "number" then saved = cfg.Default or S.Min end
+	S:SetValue(saved, true)
+	S.Idx = idx
 	Library.Options[idx] = S
 	return S
 end
@@ -695,7 +832,8 @@ end
 -- INPUT: vong sang mo rong ra khi focus, gach duoi chay tu giua
 function Elements:AddInput(idx, cfg)
 	local I = NewOption("Input", cfg)
-	I.Value = cfg.Default or ""
+	local saved = ConfigValue(idx)
+	I.Value = (saved ~= nil) and tostring(saved) or (cfg.Default or "")
 	local el = Element(self.Container, cfg.Title, cfg.Description, 176, cfg.Icon)
 	local box = Create("Frame", {
 		Parent = el, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
@@ -744,6 +882,8 @@ function Elements:AddInput(idx, cfg)
 		if not cfg.Finished then Fire(I, I.Value) end
 	end)
 	function I:SetValue(v) tb.Text = tostring(v) end
+	if saved ~= nil then Fire(I, I.Value) end
+	I.Idx = idx
 	Library.Options[idx] = I
 	return I
 end
@@ -804,9 +944,15 @@ function Elements:AddDropdown(idx, cfg)
 	function D:SetValues(vals) D.Values = vals or {} end
 
 	local holder, blocker
+	-- [VA 3] connection rieng cho moi lan mo dropdown, khai bao TRUOC Close
+	local openConns = {}
 	local function Close()
 		if not D.Opened then return end
 		D.Opened = false
+		for _, c in ipairs(openConns) do
+			pcall(function() c:Disconnect() end)
+		end
+		table.clear(openConns)
 		TweenS(chev, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, { Rotation = 0 })
 		if blocker then SafeDestroy(blocker) blocker = nil end
 		local h = holder
@@ -823,12 +969,17 @@ function Elements:AddDropdown(idx, cfg)
 	end
 	local function Open()
 		D.Opened = true
+		local function C(sig, fn)
+			local c = sig:Connect(fn)
+			table.insert(openConns, c)
+			return c
+		end
 		TweenS(chev, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Rotation = 180 })
 		local gui = GetGui()
 		blocker = Create("TextButton", {
 			Parent = gui, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 49, AutoButtonColor = false,
 		})
-		Connect(blocker.MouseButton1Click, Close)
+		C(blocker.MouseButton1Click, Close)
 		local n = #D.Values
 		local h = math.min(n, 6) * 36 + 4
 		local w = 170
@@ -879,15 +1030,15 @@ function Elements:AddDropdown(idx, cfg)
 					})
 				end
 			end)
-			Connect(b.MouseEnter, function()
+			C(b.MouseEnter, function()
 				local sel = D.Multi and D.Value[v] or D.Value == v
 				if not sel then Tween(b, 0.1, { BackgroundTransparency = 0.93 }) end
 			end)
-			Connect(b.MouseLeave, function()
+			C(b.MouseLeave, function()
 				local sel = D.Multi and D.Value[v] or D.Value == v
 				if not sel then Tween(b, 0.1, { BackgroundTransparency = 1 }) end
 			end)
-			Connect(b.MouseButton1Click, function()
+			C(b.MouseButton1Click, function()
 				if D.Multi then
 					local new = {}
 					for k in pairs(D.Value) do new[k] = true end
@@ -919,7 +1070,18 @@ function Elements:AddDropdown(idx, cfg)
 		if D.Opened then Close() else Open() end
 	end)
 
+	local saved = ConfigValue(idx)
 	local def = cfg.Default
+	local fromSaved = false
+	if saved ~= nil then
+		if D.Multi then
+			if type(saved) == "table" then def = saved fromSaved = true end
+		else
+			for _, v in ipairs(D.Values) do
+				if v == saved then def = saved fromSaved = true break end
+			end
+		end
+	end
 	if D.Multi then
 		local dict = {}
 		if type(def) == "table" then
@@ -929,10 +1091,12 @@ function Elements:AddDropdown(idx, cfg)
 		end
 		D.Value = dict
 	else
-		if type(def) == "number" then def = D.Values[def] end
+		if not fromSaved and type(def) == "number" then def = D.Values[def] end
 		D.Value = def
 	end
 	Display()
+	if fromSaved then Fire(D, D.Value) end
+	D.Idx = idx
 	Library.Options[idx] = D
 	return D
 end
@@ -940,6 +1104,7 @@ end
 function Elements:AddSection(title)
 	local holder = Create("Frame", {
 		Parent = self.Container, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+		LayoutOrder = NextOrder(self.Container),
 	}, {
 		Create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }),
 		Create("UIPadding", { PaddingTop = UDim.new(0, 4) }),
@@ -956,6 +1121,10 @@ end
 ----------------------------------------------------------------------
 local NotifyHolder
 function Library:Notify(cfg)
+	-- [VA 2] khong tao GUI moi sau khi Unload, tra ve doi tuong gia de code goi N:Close() khong loi
+	if Library.Unloaded then
+		return { Close = function() end }
+	end
 	cfg = cfg or {}
 	local gui = GetGui()
 	if not NotifyHolder or not NotifyHolder.Parent then
@@ -998,7 +1167,9 @@ function Library:Notify(cfg)
 	function N:Close()
 		if closed then return end
 		closed = true
-		Tween(card, 0.25, { Position = UDim2.new(1, 30, 0, 0) })
+		if card.Parent then
+			Tween(card, 0.25, { Position = UDim2.new(1, 30, 0, 0) })
+		end
 		task.delay(0.28, function() SafeDestroy(wrap) end)
 	end
 	Connect(closeBtn.MouseEnter, function() Tween(closeBtn, 0.1, { BackgroundTransparency = 0.93 }) end)
@@ -1115,13 +1286,70 @@ function Library:CreateWindow(cfg)
 		ClearTextOnFocus = false, Text = "", PlaceholderText = "Search...", PlaceholderColor3 = Color3.fromRGB(140, 140, 140),
 		TextColor3 = Theme.Text, TextSize = 12, FontFace = GetFont(), TextXAlignment = Enum.TextXAlignment.Left,
 	})
+	-- Tim kiem xuyen tab: nhac cac element khop ra trang "ket qua", xoa o tim kiem thi tra ve dung cho cu
+	local ResultsPage, EmptyLbl, TabDisplayRef = nil, nil, nil
+	local ResultsHeaders = {}
+	Window._searching = false
+
 	local function ApplySearch(q)
 		q = string.lower(q or "")
+		local searching = q ~= ""
+		Window._searching = searching
+		if not ResultsPage then return end
+
+		if not searching then
+			for _, r in ipairs(Registry) do
+				local el = r.el
+				if el and el.Parent == ResultsPage then
+					el.LayoutOrder = r.order
+					el.Parent = r.parent
+				end
+			end
+			for _, h in pairs(ResultsHeaders) do h.Visible = false end
+			EmptyLbl.Visible = false
+			ResultsPage.Visible = false
+			local sel = Window.Tabs[Window.Selected]
+			if sel then
+				sel.Page.Visible = true
+				TabDisplayRef.Text = sel.Title
+			end
+			return
+		end
+
+		for _, t in pairs(Window.Tabs) do t.Page.Visible = false end
+		ResultsPage.Visible = true
+		TabDisplayRef.Text = "Search"
+
+		local tabHas, any = {}, false
 		for _, r in ipairs(Registry) do
-			if r.el and r.el.Parent then
-				r.el.Visible = (q == "" or string.find(string.lower(r.title or ""), q, 1, true) ~= nil)
+			local el = r.el
+			if el and r.parent and r.parent.Parent and r.parent:IsDescendantOf(Main) then
+				local hit = string.find(string.lower(r.title), q, 1, true) ~= nil
+					or string.find(string.lower(r.desc), q, 1, true) ~= nil
+				if hit then
+					if el.Parent ~= ResultsPage then el.Parent = ResultsPage end
+					el.LayoutOrder = r.tabIdx * 100000 + r.idx
+					el.Visible = true
+					any = true
+					if r.tabTitle ~= "" then tabHas[r.tabIdx] = r.tabTitle end
+				elseif el.Parent == ResultsPage then
+					el.LayoutOrder = r.order
+					el.Parent = r.parent
+				end
 			end
 		end
+		for idx, title in pairs(tabHas) do
+			local h = ResultsHeaders[idx]
+			if not h then
+				h = NewLabel(ResultsPage, title, 12, Enum.FontWeight.SemiBold, Theme.SubText, 0, { LayoutOrder = idx * 100000 })
+				ResultsHeaders[idx] = h
+			end
+			h.Visible = true
+		end
+		for idx, h in pairs(ResultsHeaders) do
+			if not tabHas[idx] then h.Visible = false end
+		end
+		EmptyLbl.Visible = not any
 	end
 	local searchOpen = false
 	Connect(searchBtn.MouseButton1Click, function()
@@ -1143,26 +1371,52 @@ function Library:CreateWindow(cfg)
 
 	-- Drag logic
 	local dragging, dragStart, startPos
+	local grabbing = false -- dang giu chuot (ke ca luc animation thu nho con chay)
+
+	local function OverControls(pos)
+		for _, f in ipairs({ controls, searchBox }) do
+			if f.Visible then
+				local a, sz = f.AbsolutePosition, f.AbsoluteSize
+				if pos.X >= a.X and pos.X <= a.X + sz.X and pos.Y >= a.Y and pos.Y <= a.Y + sz.Y then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
 	Connect(TitleBar.InputBegan, function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			Window._pointer = i.Position
 			if Window.Max then
-				Window:ToggleMaximize()
-				dragStart = i.Position
-				startPos = Main.Position
+				if OverControls(i.Position) then return end
+				-- dang full size: thu nho ve kich thuoc cu NGAY TRONG KHI bam vao con tro, roi tiep tuc keo
+				grabbing = true
+				Window:RestoreForDrag(i.Position, function()
+					if grabbing and Window._pointer then
+						dragging = true
+						dragStart = Window._pointer
+						startPos = Main.Position
+					end
+				end)
 			else
 				dragging, dragStart, startPos = true, i.Position, Main.Position
 			end
 		end
 	end)
 	Connect(UIS.InputChanged, function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			local d = i.Position - dragStart
-			Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
+			Window._pointer = i.Position
+			if dragging then
+				local d = i.Position - dragStart
+				Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+			end
 		end
 	end)
 	Connect(UIS.InputEnded, function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
+			grabbing = false
 		end
 	end)
 
@@ -1197,6 +1451,22 @@ function Library:CreateWindow(cfg)
 		BackgroundTransparency = 1, ClipsDescendants = true,
 	})
 
+	TabDisplayRef = TabDisplay
+	ResultsPage = Create("ScrollingFrame", {
+		Name = "SearchResults", Parent = ContainerHolder, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = 3, ScrollBarImageColor3 = Color3.new(1, 1, 1), ScrollBarImageTransparency = 0.95,
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+	}, {
+		Create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }),
+		Create("UIPadding", {
+			PaddingLeft = UDim.new(0, 2), PaddingTop = UDim.new(0, 2),
+			PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4),
+		}),
+	})
+	EmptyLbl = NewLabel(ResultsPage, "No results", 13, Enum.FontWeight.Regular, Theme.SubText, 0, {
+		LayoutOrder = 2000000000, Visible = false,
+	})
+
 	function Window:SelectTab(i)
 		local target = self.Tabs[i]
 		if not target then return end
@@ -1207,10 +1477,10 @@ function Library:CreateWindow(cfg)
 			Tween(t.Label, 0.15, { TextTransparency = sel and 0 or 0.4 })
 			Tween(t.Stroke, 0.15, { Transparency = sel and 0.5 or 1 })
 			if t.Icon then Tween(t.Icon, 0.15, { ImageTransparency = sel and 0 or 0.4 }) end
-			t.Page.Visible = sel
+			t.Page.Visible = sel and not self._searching
 		end
 		TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, (i - 1) * 38 + 11) })
-		TabDisplay.Text = target.Title
+		if not self._searching then TabDisplay.Text = target.Title end
 		TabDisplay.TextTransparency = 1
 		Tween(TabDisplay, 0.3, { TextTransparency = 0 })
 		target.Page.Position = UDim2.fromOffset(0, 14)
@@ -1249,7 +1519,11 @@ function Library:CreateWindow(cfg)
 		Connect(tab.Button.MouseLeave, function()
 			if Window.Selected ~= index then Tween(tab.Button, 0.1, { BackgroundTransparency = 1 }) end
 		end)
-		Connect(tab.Button.MouseButton1Click, function() Window:SelectTab(index) end)
+		Connect(tab.Button.MouseButton1Click, function()
+			-- dang tim kiem thi bam tab = thoat ket qua, mo tab do
+			if Window._searching then searchTB.Text = "" end
+			Window:SelectTab(index)
+		end)
 
 		tab.Page = Create("ScrollingFrame", {
 			Parent = ContainerHolder, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0,
@@ -1262,6 +1536,8 @@ function Library:CreateWindow(cfg)
 				PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 4),
 			}),
 		})
+		tab.Page:SetAttribute("TabTitle", tab.Title)
+		tab.Page:SetAttribute("TabIndex", index)
 		tab.Container = tab.Page
 		self.Tabs[index] = tab
 		if index == 1 then self:SelectTab(1) end
@@ -1326,6 +1602,8 @@ function Library:CreateWindow(cfg)
 	Window._flow = flow
 
 	function Window:SetVisible(v)
+		-- [VA 1] bo qua neu animation dang chay, tranh lech trang thai Minimized
+		if flow.Playing then return end
 		self.Minimized = not v
 		if v then
 			UpdateToggle(true)
@@ -1354,10 +1632,12 @@ function Library:CreateWindow(cfg)
 		if self.Max then
 			self.Max = false
 			local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-			TweenService:Create(Main, info, {
+			if self._maxTween then self._maxTween:Cancel() end
+			self._maxTween = TweenService:Create(Main, info, {
 				Size = self._savedSize,
 				Position = self._savedPos,
-			}):Play()
+			})
+			self._maxTween:Play()
 			for _, c in ipairs(maxIconInner:GetChildren()) do SafeDestroy(c) end
 			DrawMaximize(maxIconInner, 10, Theme.Text)
 		else
@@ -1365,13 +1645,58 @@ function Library:CreateWindow(cfg)
 			self._savedSize = Main.Size
 			self._savedPos = Main.Position
 			local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-			TweenService:Create(Main, info, {
+			if self._maxTween then self._maxTween:Cancel() end
+			self._maxTween = TweenService:Create(Main, info, {
 				Size = UDim2.new(1, -16, 1, -16),
 				Position = UDim2.fromScale(0.5, 0.5),
-			}):Play()
+			})
+			self._maxTween:Play()
 			for _, c in ipairs(maxIconInner:GetChildren()) do SafeDestroy(c) end
 			DrawRestore(maxIconInner, 8, Theme.Text)
 		end
+	end
+
+	-- Keo title bar luc dang full size: vua thu nho ve size cu, vua bam theo con tro
+	function Window:RestoreForDrag(pointer, onDone)
+		if not self.Max then return end
+		self.Max = false
+		if self._maxTween then self._maxTween:Cancel() end
+		for _, c in ipairs(maxIconInner:GetChildren()) do SafeDestroy(c) end
+		DrawMaximize(maxIconInner, 10, Theme.Text)
+
+		local ga, gp = gui.AbsoluteSize, gui.AbsolutePosition
+		local fromSize, fromPos = Main.AbsoluteSize, Main.AbsolutePosition
+		local ss = self._savedSize
+		local toW = ss.X.Scale * ga.X + ss.X.Offset
+		local toH = ss.Y.Scale * ga.Y + ss.Y.Offset
+		-- giu nguyen vi tri con tro tren title bar theo ti le ngang
+		local rx = fromSize.X > 0 and math.clamp((pointer.X - fromPos.X) / fromSize.X, 0, 1) or 0.5
+		local yoff = math.clamp(pointer.Y - fromPos.Y, 0, TITLE_H)
+
+		if self._shrinkConn then self._shrinkConn:Disconnect() end
+		local t0, DUR = os.clock(), 0.2
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			if Library.Unloaded or not Main.Parent then
+				conn:Disconnect()
+				self._shrinkConn = nil
+				return
+			end
+			local a = math.clamp((os.clock() - t0) / DUR, 0, 1)
+			local e = 1 - (1 - a) ^ 3
+			local w = fromSize.X + (toW - fromSize.X) * e
+			local h = fromSize.Y + (toH - fromSize.Y) * e
+			local pt = self._pointer or pointer
+			Main.Size = UDim2.fromOffset(w, h)
+			Main.Position = UDim2.fromOffset(pt.X - rx * w + w / 2 - gp.X, pt.Y - yoff + h / 2 - gp.Y)
+			if a >= 1 then
+				conn:Disconnect()
+				self._shrinkConn = nil
+				Main.Size = ss
+				if onDone then onDone() end
+			end
+		end)
+		self._shrinkConn = conn
 	end
 
 	Connect(maxBtn.MouseButton1Click, function() Window:ToggleMaximize() end)
@@ -1494,6 +1819,7 @@ end
 
 function Library:Unload()
 	if self.Unloaded then return end
+	if SavePending then self:SaveConfig() end
 	self.Unloaded = true
 	for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
 	table.clear(Registry)
