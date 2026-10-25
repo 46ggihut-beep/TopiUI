@@ -76,7 +76,8 @@ function Library:SaveConfig()
 		if o.Value ~= nil then
 			if o.Type == "Dropdown" and o.Multi then
 				local list = {}
-				for _, v in ipairs(o.Values) do
+				local src = (o.ClickOrder and o.Order) or o.Values
+				for _, v in ipairs(src) do
 					if o.Value[v] then table.insert(list, v) end
 				end
 				data[tostring(idx)] = list
@@ -894,7 +895,27 @@ function Elements:AddDropdown(idx, cfg)
 	D.Values = cfg.Values or {}
 	D.Multi = cfg.Multi and true or false
 	D.Value = D.Multi and {} or nil
-	local el = Element(self.Container, cfg.Title, cfg.Description, 136, cfg.Icon)
+	-- ClickOrder (chi Multi): true = phan gioi thieu (Description) cua dropdown hien item da chon theo luot: item 1 -> item 2 -> ...; false = nhu cu
+	D.ClickOrder = (D.Multi and cfg.ClickOrder) and true or false
+	D.Order = {}
+	local function SyncOrder(arr)
+		local order, seen = {}, {}
+		local function add(v)
+			if D.Value[v] and not seen[v] then
+				seen[v] = true
+				table.insert(order, v)
+			end
+		end
+		if arr and #arr > 0 then
+			for _, v in ipairs(arr) do add(v) end
+		else
+			for _, v in ipairs(D.Order) do add(v) end
+		end
+		for _, v in ipairs(D.Values) do add(v) end
+		D.Order = order
+	end
+	local el, _, descLbl = Element(self.Container, cfg.Title, cfg.Description, 136, cfg.Icon)
+	local baseDesc = cfg.Description or ""
 	local box = Create("Frame", {
 		Parent = el, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
 		Size = UDim2.fromOffset(120, 26), BackgroundColor3 = Theme.Input, BackgroundTransparency = 0.9, BorderSizePixel = 0,
@@ -922,6 +943,16 @@ function Elements:AddDropdown(idx, cfg)
 		else
 			text.Text = D.Value ~= nil and tostring(D.Value) or "--"
 		end
+		-- ClickOrder: ghi thu tu chon vao phan gioi thieu
+		if D.Multi and D.ClickOrder then
+			local chain = {}
+			for _, v in ipairs(D.Order) do if D.Value[v] then table.insert(chain, tostring(v)) end end
+			local line = table.concat(chain, " -> ")
+			local full = baseDesc
+			if line ~= "" then full = (baseDesc ~= "" and (baseDesc .. "\n") or "") .. line end
+			descLbl.Text = full
+			descLbl.Visible = full ~= ""
+		end
 	end
 
 	local refresh
@@ -934,6 +965,7 @@ function Elements:AddDropdown(idx, cfg)
 				end
 			end
 			D.Value = new
+			SyncOrder(type(v) == "table" and v or nil)
 		else
 			D.Value = v
 		end
@@ -1090,6 +1122,7 @@ function Elements:AddDropdown(idx, cfg)
 			end
 		end
 		D.Value = dict
+		SyncOrder(type(def) == "table" and def or nil)
 	else
 		if not fromSaved and type(def) == "number" then def = D.Values[def] end
 		D.Value = def
