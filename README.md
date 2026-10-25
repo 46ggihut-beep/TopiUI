@@ -1,6 +1,7 @@
 # TopiUI
 # dùng
-```local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/TopiUI_Lib.lua"))()
+```
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggihut-beep/TopiUI/refs/heads/main/TopiUI_Lib.lua"))()
 
 local Window = Library:CreateWindow({
 	Title = "Topi Hub", SubTitle = "by wzarii",
