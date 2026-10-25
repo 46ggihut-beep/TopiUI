@@ -126,7 +126,7 @@ Section:AddButton({
 local Window = Library:CreateWindow({
 	Title = "Tên Hub",
 	SubTitle = "Phụ đề",
-	Size = UDim2.fromOffset(580, 460),
+	Size = UDim2.fromOffset(500, 400),
 	TabWidth = 160,
 	Transparency = 0.5,
 	MinimizeKey = Enum.KeyCode.LeftControl,
@@ -463,7 +463,7 @@ local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/46ggi
 local Window = Library:CreateWindow({
 	Title = "TopiHub",
 	SubTitle = "Ví dụ",
-	Size = UDim2.fromOffset(580, 460),
+	Size = UDim2.fromOffset(500, 400),
 	MinimizeKey = Enum.KeyCode.LeftControl,
 })
 
