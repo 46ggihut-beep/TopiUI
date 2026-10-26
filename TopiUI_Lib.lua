@@ -981,6 +981,254 @@ function Elements:AddKeybind(idx, cfg)
 	return K
 end
 
+-- SLIDER DROPDOWN: bam vao -> khung truot xuong (day cac element phia duoi), ben trong la danh sach slider
+-- cfg: Title, Description, Open (mo san), Summary (false = tat dong tom tat gia tri), Callback(values, name, value)
+--      Items = { { Name, Min, Max, Default, Rounding, Suffix }, ... }
+-- Value = { [Name] = number }  (luu config duoc)
+function Elements:AddSliderDropdown(idx, cfg)
+	local K = NewOption("SliderDropdown", cfg)
+	local items = cfg.Items or {}
+	local saved = ConfigValue(idx)
+	if type(saved) ~= "table" then saved = {} end
+	K.Value = {}
+	K.Opened = false
+
+	local el, _, descLbl, holder = Element(self.Container, cfg.Title, cfg.Description, 36, cfg.Icon)
+	local baseDesc = cfg.Description or ""
+	local ROW_H, ROW_GAP, PAD_T, PAD_B = 44, 4, 2, 12
+	local n = #items
+	local BODY_H = n * ROW_H + math.max(n - 1, 0) * ROW_GAP + PAD_T + PAD_B
+
+	-- mui ten (xoay 180 do khi mo)
+	local chev = Create("Frame", {
+		Parent = el, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0, 17),
+		Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1,
+	})
+	for _, c in ipairs({ { -2.1, 45 }, { 2.1, -45 } }) do
+		Create("Frame", {
+			Parent = chev, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, c[1], 0.5, 1),
+			Size = UDim2.fromOffset(6, 1), Rotation = c[2], BackgroundColor3 = Theme.Text, BackgroundTransparency = 0.2, BorderSizePixel = 0,
+		})
+	end
+
+	-- phan than: nam duoi header, cao 0 luc dong; el tu gian (AutomaticSize) nen cac element duoi bi day xuong
+	local headerH = 34
+	local body = Create("Frame", {
+		Parent = el, Position = UDim2.fromOffset(0, headerH), Size = UDim2.new(1, 0, 0, 0),
+		BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, Visible = false,
+	})
+	-- content co chieu cao co dinh, neo day vao body: body co/gian thi ca list truot theo (khong chi bi cat)
+	local content = Create("Frame", {
+		Parent = body, AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1),
+		Size = UDim2.new(1, 0, 0, BODY_H), BackgroundTransparency = 1, BorderSizePixel = 0,
+	}, {
+		Create("UIListLayout", { Padding = UDim.new(0, ROW_GAP), SortOrder = Enum.SortOrder.LayoutOrder }),
+		Create("UIPadding", {
+			PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12),
+			PaddingTop = UDim.new(0, PAD_T), PaddingBottom = UDim.new(0, PAD_B),
+		}),
+	})
+
+	-- cac hang slider
+	local rows, byName = {}, {}
+	for i, it in ipairs(items) do
+		local r = {
+			name = it.Name or ("Item " .. i), min = it.Min or 0, max = it.Max or 100,
+			rounding = it.Rounding or 0, suffix = it.Suffix or "", default = it.Default,
+		}
+		r.cell = Create("Frame", { Parent = content, Size = UDim2.new(1, 0, 0, ROW_H), BackgroundTransparency = 1, LayoutOrder = i })
+		r.card = Create("CanvasGroup", { Parent = r.cell, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+		NewLabel(r.card, r.name, 13, Enum.FontWeight.Regular, Theme.Text, 0, {
+			Size = UDim2.new(1, -64, 0, 18), AutomaticSize = Enum.AutomaticSize.None, TextWrapped = false,
+		})
+		r.valLbl = NewLabel(r.card, "", 12, Enum.FontWeight.Regular, Theme.Text, 0.2, {
+			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0), Size = UDim2.fromOffset(60, 18),
+			AutomaticSize = Enum.AutomaticSize.None, TextWrapped = false, TextXAlignment = Enum.TextXAlignment.Right,
+		})
+		r.rail = Create("Frame", {
+			Parent = r.card, Position = UDim2.fromOffset(0, 22), Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1,
+		})
+		local line = Create("Frame", {
+			Parent = r.rail, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(1, -10, 0, 2), BackgroundColor3 = Theme.SliderRail, BorderSizePixel = 0,
+		}, { Round() })
+		r.fill = Create("Frame", {
+			Parent = line, Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
+		}, { Round() })
+		r.dot = Create("Frame", {
+			Parent = r.rail, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 5, 0.5, 0),
+			Size = UDim2.fromOffset(10, 10), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0,
+		}, { Round(), Stroke(Theme.Accent, 4, 1) })
+		r.dotStroke = r.dot:FindFirstChildOfClass("UIStroke")
+		rows[i] = r
+		byName[r.name] = r
+	end
+
+	-- dong tom tat gia tri o header
+	local function Summary()
+		if cfg.Summary == false then return end
+		local parts = {}
+		for _, r in ipairs(rows) do
+			table.insert(parts, r.name .. " " .. tostring(K.Value[r.name]) .. r.suffix)
+		end
+		local s = table.concat(parts, "  |  ")
+		descLbl.Text = (baseDesc ~= "" and (baseDesc .. "\n") or "") .. s
+		descLbl.Visible = s ~= "" or baseDesc ~= ""
+	end
+
+	local function Apply(r, v, smooth)
+		local m = 10 ^ r.rounding
+		v = math.clamp(tonumber(v) or r.min, r.min, r.max)
+		v = math.floor(v * m + 0.5) / m
+		K.Value[r.name] = v
+		local frac = (r.max == r.min) and 0 or (v - r.min) / (r.max - r.min)
+		r.valLbl.Text = tostring(v) .. r.suffix
+		local dp = UDim2.new(frac, 5 - 10 * frac, 0.5, 0)
+		local fs = UDim2.new(frac, 0, 1, 0)
+		if smooth then
+			TweenS(r.dot, 0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Position = dp })
+			TweenS(r.fill, 0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Size = fs })
+		else
+			r.dot.Position = dp
+			r.fill.Size = fs
+		end
+		return v
+	end
+
+	local function SetItem(r, v, smooth)
+		local old = K.Value[r.name]
+		local nv = Apply(r, v, smooth)
+		Summary()
+		if nv ~= old then Fire(K, K.Value, r.name, nv) end
+	end
+
+	for _, r in ipairs(rows) do
+		local v = saved[r.name]
+		if type(v) ~= "number" then v = r.default or r.min end
+		Apply(r, v, false)
+	end
+	Summary()
+
+	function K:SetItem(name, v)
+		local r = byName[name]
+		if r then SetItem(r, v, true) end
+	end
+	function K:GetItem(name) return self.Value[name] end
+	function K:SetValue(t)
+		if type(t) ~= "table" then return end
+		for name, v in pairs(t) do
+			local r = byName[name]
+			if r then SetItem(r, v, true) end
+		end
+	end
+
+	-- keo slider (1 bo xu ly chung cho moi hang)
+	local active
+	local function Grow(r, on)
+		if on then
+			TweenS(r.dot, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Size = UDim2.fromOffset(16, 16) })
+			TweenS(r.dotStroke, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Transparency = 0.65 })
+		else
+			TweenS(r.dot, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Size = UDim2.fromOffset(10, 10) })
+			TweenS(r.dotStroke, 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Transparency = 1 })
+		end
+	end
+	local function FromX(r, x)
+		local w = r.rail.AbsoluteSize.X - 10
+		if w <= 0 then return end
+		local frac = math.clamp((x - r.rail.AbsolutePosition.X - 5) / w, 0, 1)
+		SetItem(r, r.min + (r.max - r.min) * frac, true)
+	end
+	for _, r in ipairs(rows) do
+		Connect(r.rail.InputBegan, function(i)
+			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+				active = r
+				Grow(r, true)
+				FromX(r, i.Position.X)
+			end
+		end)
+	end
+	Connect(UIS.InputChanged, function(i)
+		if active and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			FromX(active, i.Position.X)
+		end
+	end)
+	Connect(UIS.InputEnded, function(i)
+		if active and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+			Grow(active, false)
+			active = nil
+		end
+	end)
+
+	-- header: chi phan header nhan click (khong phu len cac slider ben duoi)
+	local hit = Create("TextButton", {
+		Parent = el, Position = UDim2.fromOffset(0, 0), Size = UDim2.new(1, 0, 0, headerH), BackgroundTransparency = 1,
+		Text = "", AutoButtonColor = false, BorderSizePixel = 0, ZIndex = 10,
+	})
+	local function Relayout()
+		headerH = math.max(34, holder.AbsoluteSize.Y)
+		hit.Size = UDim2.new(1, 0, 0, headerH)
+		body.Position = UDim2.fromOffset(0, headerH)
+		chev.Position = UDim2.new(1, -14, 0, headerH / 2)
+	end
+	Connect(holder:GetPropertyChangedSignal("AbsoluteSize"), Relayout)
+	Relayout()
+	Connect(hit.MouseEnter, function() Tween(el, 0.1, { BackgroundTransparency = 0.83 }) end)
+	Connect(hit.MouseLeave, function() Tween(el, 0.1, { BackgroundTransparency = 0.87 }) end)
+	Connect(hit.MouseButton1Down, function() Tween(el, 0.1, { BackgroundTransparency = 0.9 }) end)
+	Connect(hit.MouseButton1Up, function() Tween(el, 0.1, { BackgroundTransparency = 0.83 }) end)
+
+	-- mo / dong: body truot xuong, cac hang truot + hien lan luot
+	local token = 0
+	local function SetOpen(v)
+		if v == K.Opened then return end
+		K.Opened = v
+		token += 1
+		local my = token
+		if v then
+			body.Visible = true
+			TweenS(body, 0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, { Size = UDim2.new(1, 0, 0, BODY_H) })
+			TweenS(chev, 0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Rotation = 180 })
+			for i, r in ipairs(rows) do
+				r.card.GroupTransparency = 1
+				r.card.Position = UDim2.fromOffset(0, -14)
+				task.delay(0.06 * (i - 1), function()
+					if token ~= my or Library.Unloaded then return end
+					TweenS(r.card, 0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+						GroupTransparency = 0, Position = UDim2.fromOffset(0, 0),
+					})
+				end)
+			end
+		else
+			-- nguoc lai luc mo: hang cuoi truot len + mo dan truoc, hang dau sau cung, trong khi khung co dan len
+			local cnt = #rows
+			for i, r in ipairs(rows) do
+				task.delay(0.03 * (cnt - i), function()
+					if token ~= my or Library.Unloaded then return end
+					TweenS(r.card, 0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+						GroupTransparency = 1, Position = UDim2.fromOffset(0, -14),
+					})
+				end)
+			end
+			TweenS(chev, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Rotation = 0 })
+			local tw = TweenS(body, 0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, { Size = UDim2.new(1, 0, 0, 0) })
+			tw.Completed:Connect(function()
+				if token == my and not K.Opened then body.Visible = false end
+			end)
+		end
+	end
+	Connect(hit.MouseButton1Click, function() SetOpen(not K.Opened) end)
+	function K:Open() SetOpen(true) end
+	function K:Close() SetOpen(false) end
+	function K:Toggle() SetOpen(not K.Opened) end
+
+	Fire(K, K.Value) -- dong bo gia tri mac dinh / da luu ra ngoai (Idx chua gan -> khong ghi file)
+	K.Idx = idx
+	Library.Options[idx] = K
+	if cfg.Open then SetOpen(true) end
+	return K
+end
+
 -- DROPDOWN: danh sach bung xuong, muc truot vao lan luot, mui ten xoay
 function Elements:AddDropdown(idx, cfg)
 	local D = NewOption("Dropdown", cfg)
@@ -1743,7 +1991,7 @@ function Library:CreateWindow(cfg)
 
 	function Window:SetVisible(v)
 		-- [VA 1] bo qua neu animation dang chay, tranh lech trang thai Minimized
-		if flow.Playing then return end
+		if flow.Playing or Library._exiting then return end
 		self.Minimized = not v
 		if v then
 			UpdateToggle(true)
@@ -1764,6 +2012,159 @@ function Library:CreateWindow(cfg)
 
 	function Window:Minimize()
 		self:SetVisible(self.Minimized)
+	end
+
+	-- HIEU UNG THOAT: UI thu nho ve tam, toggle bi keo ve tam, roi "pum" no tung ra tu tam, mo dan, xoa UI
+	function Window:PlayExit(onDone)
+		local finished = false
+		local function Done()
+			if finished then return end
+			finished = true
+			if onDone then onDone() end
+		end
+		-- failsafe: du co loi gi trong animation thi van xoa UI
+		task.delay(2.5, Done)
+
+		local ok = pcall(function()
+			local function Ctr(inst)
+				local a, s = inst.AbsolutePosition, inst.AbsoluteSize
+				local g = gui.AbsolutePosition
+				return Vector2.new(a.X + s.X / 2 - g.X, a.Y + s.Y / 2 - g.Y)
+			end
+
+			-- khoa thao tac + dung cac animation dang chay
+			if self._maxTween then self._maxTween:Cancel() end
+			if self._shrinkConn then
+				self._shrinkConn:Disconnect()
+				self._shrinkConn = nil
+			end
+			pcall(function() toggle.Interactable = false end)
+			pcall(function() Main.Interactable = false end)
+
+			local winShown = Main.Visible and Main.GroupTransparency < 0.9
+			local tcenter = Ctr(toggle)
+			local center = winShown and Ctr(Main) or tcenter
+
+			-- doi AnchorPoint cua toggle ve tam de keo ve tam UI ma khong bi nhay vi tri
+			toggle.AnchorPoint = Vector2.new(0.5, 0.5)
+			toggle.Position = UDim2.fromOffset(tcenter.X, tcenter.Y)
+
+			-- PHA 1: UI thu nho theo tam, toggle bay ve tam
+			local T1 = 0.55
+			if winShown then
+				local info = TweenInfo.new(T1, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+				TweenService:Create(Main, info, { Size = UDim2.fromOffset(56, 56) }):Play()
+				TweenService:Create(self._corner, info, { CornerRadius = UDim.new(0, 28) }):Play()
+			end
+			TweenS(toggle, T1, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut, {
+				Position = UDim2.fromOffset(center.X, center.Y),
+			})
+			TweenS(toggleScale, T1, Enum.EasingStyle.Quad, Enum.EasingDirection.In, { Scale = 0.8 })
+
+			-- PHA 2: PUM
+			task.delay(T1 + 0.02, function()
+				if not Main.Parent then return Done() end
+
+				-- UI + toggle mo dan
+				TweenService:Create(Main, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+					GroupTransparency = 1,
+				}):Play()
+				TweenS(toggleScale, 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 1.6 })
+				task.delay(0.1, function()
+					if not toggle.Parent then return end
+					Tween(toggle, 0.3, { BackgroundTransparency = 1 })
+					Tween(logo, 0.3, { ImageTransparency = 1 })
+					for _, d in ipairs(toggle:GetDescendants()) do
+						if d:IsA("UIStroke") then Tween(d, 0.3, { Transparency = 1 }) end
+					end
+				end)
+
+				local function At(props)
+					props.Parent = gui
+					props.AnchorPoint = Vector2.new(0.5, 0.5)
+					props.Position = UDim2.fromOffset(center.X, center.Y)
+					props.BorderSizePixel = 0
+					return props
+				end
+
+				-- tia sang
+				local flash = Create("Frame", At({
+					Size = UDim2.fromOffset(24, 24), BackgroundColor3 = Color3.new(1, 1, 1),
+					BackgroundTransparency = 0.05, ZIndex = 199,
+				}), { Round() })
+				TweenS(flash, 0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+					Size = UDim2.fromOffset(200, 200), BackgroundTransparency = 1,
+				})
+				task.delay(0.45, function() SafeDestroy(flash) end)
+
+				-- song xung kich
+				for _, rc in ipairs({ { 440, 0.7, 0 }, { 300, 0.55, 0.08 } }) do
+					task.delay(rc[3], function()
+						if not gui.Parent then return end
+						local ring = Create("Frame", At({
+							Size = UDim2.fromOffset(30, 30), BackgroundTransparency = 1, ZIndex = 198,
+						}), { Round(), Stroke(Theme.Accent, 3, 0.05) })
+						TweenS(ring, rc[2], Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+							Size = UDim2.fromOffset(rc[1], rc[1]),
+						})
+						TweenS(ring:FindFirstChildOfClass("UIStroke"), rc[2], Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
+							Transparency = 1,
+						})
+						task.delay(rc[2] + 0.05, function() SafeDestroy(ring) end)
+					end)
+				end
+
+				-- hat tron bay ra tu tam
+				local N = 28
+				for i = 1, N do
+					local ang = (i / N) * math.pi * 2 + (math.random() - 0.5) * 0.5
+					local dist = math.random(90, 280)
+					local sz = math.random(4, 10)
+					local t = 0.5 + math.random() * 0.35
+					local p = Create("Frame", At({
+						Size = UDim2.fromOffset(sz, sz), ZIndex = 200,
+						BackgroundColor3 = (i % 3 == 0) and Color3.new(1, 1, 1) or Theme.Accent,
+					}), { Round() })
+					TweenS(p, t, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+						Position = UDim2.fromOffset(center.X + math.cos(ang) * dist, center.Y + math.sin(ang) * dist),
+					})
+					task.delay(t * 0.35, function()
+						if p.Parent then
+							TweenS(p, t * 0.65, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {
+								BackgroundTransparency = 1, Size = UDim2.fromOffset(0, 0),
+							})
+						end
+					end)
+					task.delay(t + 0.1, function() SafeDestroy(p) end)
+				end
+
+				-- manh vach bay ra theo huong no
+				for i = 1, 12 do
+					local ang = (i / 12) * math.pi * 2 + (math.random() - 0.5) * 0.4
+					local dist = math.random(140, 320)
+					local t = 0.45 + math.random() * 0.25
+					local sh = Create("Frame", At({
+						Size = UDim2.fromOffset(18, 2), Rotation = math.deg(ang), ZIndex = 200,
+						BackgroundColor3 = Theme.Accent,
+					}), { Round() })
+					TweenS(sh, t, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+						Position = UDim2.fromOffset(center.X + math.cos(ang) * dist, center.Y + math.sin(ang) * dist),
+					})
+					task.delay(t * 0.3, function()
+						if sh.Parent then
+							TweenS(sh, t * 0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.In, {
+								BackgroundTransparency = 1, Size = UDim2.fromOffset(4, 2),
+							})
+						end
+					end)
+					task.delay(t + 0.1, function() SafeDestroy(sh) end)
+				end
+
+				-- cho hieu ung tan het roi moi xoa UI
+				task.delay(0.9, Done)
+			end)
+		end)
+		if not ok then Done() end
 	end
 
 	-- MAXIMIZE / RESTORE
@@ -1958,9 +2359,25 @@ function Library:CreateWindow(cfg)
 	return Window
 end
 
-function Library:Unload()
+-- Unload(): chay hieu ung thoat roi xoa UI. Unload(true): xoa ngay, khong hieu ung
+function Library:Unload(instant)
+	if self.Unloaded or self._exiting then return end
+	if SavePending then self:SaveConfig() end
+	local W = self[1]
+	if instant or not W or not W.PlayExit or not Gui or not Gui.Parent or not W.Main or not W.Main.Parent then
+		return self:_FinalUnload()
+	end
+	self._exiting = true
+	local ok = pcall(function()
+		W:PlayExit(function() Library:_FinalUnload() end)
+	end)
+	if not ok then self:_FinalUnload() end
+end
+
+function Library:_FinalUnload()
 	if self.Unloaded then return end
 	if SavePending then self:SaveConfig() end
+	self._exiting = false
 	self.Unloaded = true
 	for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
 	table.clear(Registry)
