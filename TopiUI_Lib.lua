@@ -889,6 +889,98 @@ function Elements:AddInput(idx, cfg)
 	return I
 end
 
+-- KEYBIND: bam vao -> xoa phim cu, hien "..." mo; nhan phim bat ky de gan phim moi
+local KeyDisplay = {
+	LeftControl = "Left Ctrl", RightControl = "Right Ctrl",
+	LeftShift = "Left Shift", RightShift = "Right Shift",
+	LeftAlt = "Left Alt", RightAlt = "Right Alt",
+	Return = "Enter", Backspace = "Backspace", Escape = "Esc",
+}
+local function KeyLabel(name) return KeyDisplay[name] or name end
+
+function Elements:AddKeybind(idx, cfg)
+	local K = NewOption("Keybind", cfg)
+	-- Value luon la TEN phim (string) de luu JSON duoc
+	local function Valid(v)
+		if typeof(v) == "EnumItem" then v = v.Name end
+		if type(v) ~= "string" then return nil end
+		local ok, kc = pcall(function() return Enum.KeyCode[v] end)
+		if ok and kc and kc ~= Enum.KeyCode.Unknown then return kc.Name end
+		return nil
+	end
+	K.Value = Valid(ConfigValue(idx)) or Valid(cfg.Default) or "LeftControl"
+
+	local el = Element(self.Container, cfg.Title, cfg.Description, 118, cfg.Icon)
+	local box = Create("Frame", {
+		Parent = el, AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(100, 26), BackgroundColor3 = Theme.Input, BackgroundTransparency = 0.9, BorderSizePixel = 0,
+	}, { Corner(5), Stroke(Theme.InElementBorder, 1, 0.5) })
+	local boxStroke = box:FindFirstChildOfClass("UIStroke")
+	local lbl = Create("TextLabel", {
+		Parent = box, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = KeyLabel(K.Value),
+		TextSize = 12, FontFace = GetFont(), TextColor3 = Theme.Text, TextTransparency = 0,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+
+	local listening = false
+	local function Render()
+		if listening then
+			lbl.Text = "..."
+			Tween(lbl, 0.15, { TextTransparency = 0.6 })
+			Tween(boxStroke, 0.15, { Color = Theme.Accent, Transparency = 0.2 })
+		else
+			lbl.Text = KeyLabel(K.Value)
+			Tween(lbl, 0.15, { TextTransparency = 0 })
+			Tween(boxStroke, 0.15, { Color = Theme.InElementBorder, Transparency = 0.5 })
+		end
+	end
+
+	-- BindCount > 0: UI dang cho gan phim -> phim an/hien UI bi tam khoa (giam sau 1 nhip de tranh kich hoat nham)
+	local function EndListen()
+		if not listening then return end
+		listening = false
+		task.defer(function() Library.BindCount = math.max((Library.BindCount or 1) - 1, 0) end)
+	end
+	local function Cancel()
+		EndListen()
+		Render()
+	end
+
+	function K:SetValue(v)
+		local name = Valid(v)
+		if not name then return end
+		self.Value = name
+		EndListen()
+		Render()
+		Fire(self, name)
+	end
+
+	HitOverlay(el, function()
+		if listening then
+			Cancel()
+			return
+		end
+		if Library._cancelBind then Library._cancelBind() end
+		Library._cancelBind = Cancel
+		listening = true
+		Library.BindCount = (Library.BindCount or 0) + 1
+		Render()
+	end)
+
+	Connect(UIS.InputBegan, function(input)
+		if not listening then return end
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+		if input.KeyCode == Enum.KeyCode.Unknown then return end
+		if UIS:GetFocusedTextBox() then return end
+		K:SetValue(input.KeyCode.Name)
+	end)
+
+	Fire(K, K.Value) -- dong bo gia tri mac dinh / da luu ra ngoai (Idx chua gan -> khong ghi file)
+	K.Idx = idx
+	Library.Options[idx] = K
+	return K
+end
+
 -- DROPDOWN: danh sach bung xuong, muc truot vao lan luot, mui ten xoay
 function Elements:AddDropdown(idx, cfg)
 	local D = NewOption("Dropdown", cfg)
@@ -1475,6 +1567,20 @@ function Library:CreateWindow(cfg)
 		BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 2,
 	}, { Corner(2) })
 
+	-- Selector nam ngoai TabScroll nen phai tu tru di CanvasPosition de bam theo tab khi cuon
+	local selTween
+	local function SelectorY(i)
+		return (i - 1) * 38 + 11 - TabScroll.CanvasPosition.Y
+	end
+	Connect(TabScroll:GetPropertyChangedSignal("CanvasPosition"), function()
+		if not Window.Selected then return end
+		if selTween then
+			selTween:Cancel()
+			selTween = nil
+		end
+		Selector.Position = UDim2.fromOffset(0, SelectorY(Window.Selected))
+	end)
+
 	local TabDisplay = NewLabel(Main, "", 28, Enum.FontWeight.SemiBold, Theme.Text, 0, {
 		Position = UDim2.fromOffset(tabWidth + 28, TITLE_H + 12), Size = UDim2.new(1, -(tabWidth + 40), 0, 34),
 		AutomaticSize = Enum.AutomaticSize.None, TextWrapped = false,
@@ -1512,7 +1618,8 @@ function Library:CreateWindow(cfg)
 			if t.Icon then Tween(t.Icon, 0.15, { ImageTransparency = sel and 0 or 0.4 }) end
 			t.Page.Visible = sel and not self._searching
 		end
-		TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, (i - 1) * 38 + 11) })
+		if selTween then selTween:Cancel() end
+		selTween = TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, SelectorY(i)) })
 		if not self._searching then TabDisplay.Text = target.Title end
 		TabDisplay.TextTransparency = 1
 		Tween(TabDisplay, 0.3, { TextTransparency = 0 })
@@ -1739,6 +1846,7 @@ function Library:CreateWindow(cfg)
 	Connect(UIS.InputBegan, function(input)
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		if UIS:GetFocusedTextBox() then return end
+		if (Library.BindCount or 0) > 0 then return end
 		local key = Window.MinimizeKey
 		if input.KeyCode == key or input.KeyCode.Name == key then
 			Window:Minimize()
