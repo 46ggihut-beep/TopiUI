@@ -265,6 +265,22 @@ local function GetGuiParent()
 	return Players.LocalPlayer:WaitForChild("PlayerGui")
 end
 
+-- Chay lai script: xoa UI cu truoc khi tao UI moi
+do
+	local env = (type(getgenv) == "function" and getgenv()) or _G
+	local old = env.__TopiUI_Instance
+	if type(old) == "table" and old ~= Library and type(old._FinalUnload) == "function" then
+		pcall(function() old:_FinalUnload() end)
+	end
+	-- quet them GUI con sot (ban lib cu chua co registry / unload loi)
+	pcall(function()
+		for _, g in ipairs(GetGuiParent():GetChildren()) do
+			if g:IsA("ScreenGui") and g.Name:sub(1, 7) == "TopiUI_" then g:Destroy() end
+		end
+	end)
+	env.__TopiUI_Instance = Library
+end
+
 local Gui
 local function GetGui()
 	if Gui and Gui.Parent then return Gui end
@@ -2354,6 +2370,99 @@ function Library:CreateWindow(cfg)
 
 	Window._savedSize = Main.Size
 	Window._savedPos = Main.Position
+
+	----------------------------------------------------------------
+	-- INTRO: UI tu an luc bat, toggle hien ra o tam UI roi bay ve pos cua no
+	-- cfg.AutoHide = false de tat (UI hien san nhu cu)
+	----------------------------------------------------------------
+	local autoHide = cfg.AutoHide ~= false
+	if autoHide then
+		Window.Minimized = true
+		Main.Visible = false
+		toggle.Visible = false
+		flow.Playing = true -- khoa Minimize/SetVisible trong luc intro chay
+	end
+
+	function Window:PlayIntro()
+		if not autoHide or self._introPlayed then return end
+		self._introPlayed = true
+
+		task.spawn(function()
+			local function Dead()
+				return Library.Unloaded or Library._exiting or not toggle.Parent
+			end
+
+			RunService.Heartbeat:Wait() -- doi layout tinh xong
+			if Dead() then flow.Playing = false return end
+
+			local ga = gui.AbsoluteSize
+			-- tam UI (Main co AnchorPoint 0.5, 0.5)
+			local mp = Main.Position
+			local center = Vector2.new(mp.X.Scale * ga.X + mp.X.Offset, mp.Y.Scale * ga.Y + mp.Y.Offset)
+			-- tam toggle o vi tri that cua no
+			local homePos, homeAnchor = toggle.Position, toggle.AnchorPoint
+			local home = Vector2.new(
+				homePos.X.Scale * ga.X + homePos.X.Offset + TOGGLE_SIZE * (0.5 - homeAnchor.X),
+				homePos.Y.Scale * ga.Y + homePos.Y.Offset + TOGGLE_SIZE * (0.5 - homeAnchor.Y)
+			)
+
+			pcall(function() toggle.Interactable = false end)
+			toggle.AnchorPoint = Vector2.new(0.5, 0.5)
+			toggle.Position = UDim2.fromOffset(center.X, center.Y)
+			toggleScale.Scale = 0
+			UpdateToggle(false)
+			toggle.Visible = true
+
+			-- PHA 1: toggle "pop" ra o tam UI + vong song
+			TweenS(toggleScale, 0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Scale = 1.2 })
+			local ring = Create("Frame", {
+				Parent = gui, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(center.X, center.Y),
+				Size = UDim2.fromOffset(TOGGLE_SIZE, TOGGLE_SIZE), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 99,
+			}, { Round(), Stroke(Theme.Accent, 2, 0.1) })
+			TweenS(ring, 0.55, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
+				Size = UDim2.fromOffset(TOGGLE_SIZE * 2.4, TOGGLE_SIZE * 2.4),
+			})
+			TweenS(ring:FindFirstChildOfClass("UIStroke"), 0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Transparency = 1 })
+			task.delay(0.6, function() SafeDestroy(ring) end)
+
+			task.wait(0.4)
+			if Dead() then SafeDestroy(ring) flow.Playing = false return end
+			TweenS(toggleScale, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 1 })
+			task.wait(0.15)
+			if Dead() then flow.Playing = false return end
+
+			-- PHA 2: bay tu tam UI ra pos cua toggle (kem giot nuoc theo sau)
+			local T = 0.65
+			for i = 1, 3 do
+				Droplet(center, home, (i - 1) * 0.05, 0.45, math.random(10, 16), nil, true)
+			end
+			TweenS(toggle, T, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut, {
+				Position = UDim2.fromOffset(home.X, home.Y),
+			})
+			TweenS(toggleScale, T * 0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Scale = 0.85 })
+			task.delay(T * 0.45, function()
+				if toggle.Parent and not Library._exiting then
+					TweenS(toggleScale, T * 0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In, { Scale = 1 })
+				end
+			end)
+			task.wait(T + 0.05)
+			if Dead() then flow.Playing = false return end
+
+			-- ha canh: tra lai AnchorPoint / Position goc de keo-tha van chay nhu cu
+			toggle.AnchorPoint = homeAnchor
+			toggle.Position = homePos
+			pcall(function() toggle.Interactable = true end)
+			RunService.Heartbeat:Wait() -- cho AbsolutePosition cap nhat roi moi ripple
+			if Dead() then flow.Playing = false return end
+			flow:_Pulse(1.2)
+			flow:_Ripple()
+			flow.Playing = false
+		end)
+	end
+
+	if autoHide then
+		task.defer(function() Window:PlayIntro() end)
+	end
 
 	table.insert(Library, Window)
 	return Window
