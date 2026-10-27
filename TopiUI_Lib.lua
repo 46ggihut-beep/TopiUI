@@ -1526,21 +1526,25 @@ end
 -- Notify
 ----------------------------------------------------------------------
 local NotifyHolder
+local function EnsureNotifyHolder()
+	if not NotifyHolder or not NotifyHolder.Parent then
+		NotifyHolder = Create("Frame", {
+			Name = "Notifications", Parent = GetGui(), AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, 310, 1, -32), BackgroundTransparency = 1,
+		}, { Create("UIListLayout", {
+			Padding = UDim.new(0, 8), VerticalAlignment = Enum.VerticalAlignment.Bottom, SortOrder = Enum.SortOrder.LayoutOrder,
+		}) })
+	end
+	return NotifyHolder
+end
+
 function Library:Notify(cfg)
 	-- [VA 2] khong tao GUI moi sau khi Unload, tra ve doi tuong gia de code goi N:Close() khong loi
 	if Library.Unloaded then
 		return { Close = function() end }
 	end
 	cfg = cfg or {}
-	local gui = GetGui()
-	if not NotifyHolder or not NotifyHolder.Parent then
-		NotifyHolder = Create("Frame", {
-			Name = "Notifications", Parent = gui, AnchorPoint = Vector2.new(1, 1),
-			Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, 310, 1, -32), BackgroundTransparency = 1,
-		}, { Create("UIListLayout", {
-			Padding = UDim.new(0, 8), VerticalAlignment = Enum.VerticalAlignment.Bottom, SortOrder = Enum.SortOrder.LayoutOrder,
-		}) })
-	end
+	EnsureNotifyHolder()
 	local wrap = Create("Frame", {
 		Parent = NotifyHolder, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
 	})
@@ -1583,6 +1587,104 @@ function Library:Notify(cfg)
 	Connect(closeBtn.MouseButton1Click, function() N:Close() end)
 	Tween(card, 0.3, { Position = UDim2.new(0, 0, 0, 0) })
 	task.delay(cfg.Duration or 5, function() N:Close() end)
+	return N
+end
+
+-- NOTIFY CO/KHONG: thong bao co 2 nut. Callback(true) = Co, Callback(false) = Khong, Callback(nil) = bo qua (X / het gio / N:Close())
+-- cfg: Title, Content, SubContent, YesText ("Có"), NoText ("Không"), Duration (giay, mac dinh 15, 0 = khong tu dong), Callback(result)
+-- N:Wait() tam dung thread den khi co ket qua, tra ve true / false / nil
+function Library:NotifyYesNo(cfg)
+	local dead = { Close = function() end, Wait = function() return nil end }
+	if Library.Unloaded then return dead end
+	cfg = cfg or {}
+	EnsureNotifyHolder()
+
+	local wrap = Create("Frame", {
+		Parent = NotifyHolder, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+	})
+	local card = Create("Frame", {
+		Parent = wrap, Position = UDim2.new(1, 30, 0, 0), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundColor3 = Color3.fromRGB(45, 45, 45), BackgroundTransparency = 0.25, BorderSizePixel = 0,
+	}, { Corner(8), Stroke(Theme.AcrylicBorder, 1, 0.5) })
+	local content = Create("Frame", {
+		Parent = card, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
+	}, {
+		Create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }),
+		Create("UIPadding", {
+			PaddingTop = UDim.new(0, 12), PaddingBottom = UDim.new(0, 12), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 30),
+		}),
+	})
+	NewLabel(content, cfg.Title or "", 13, Enum.FontWeight.SemiBold, Theme.Text, 0, { LayoutOrder = 1 })
+	if cfg.Content and cfg.Content ~= "" then
+		NewLabel(content, cfg.Content, 13, Enum.FontWeight.Regular, Theme.Text, 0.3, { LayoutOrder = 2 })
+	end
+	if cfg.SubContent and cfg.SubContent ~= "" then
+		NewLabel(content, cfg.SubContent, 12, Enum.FontWeight.Regular, Theme.Text, 0.5, { LayoutOrder = 3 })
+	end
+
+	-- hang nut Co / Khong (padding phai 30 cua content -> bu lai de nut can deu hai ben)
+	local row = Create("Frame", {
+		Parent = content, Size = UDim2.new(1, 18, 0, 30), BackgroundTransparency = 1, LayoutOrder = 4,
+	}, {
+		Create("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	local function ChoiceButton(text, order, primary)
+		local base = primary and Theme.Accent or Color3.new(1, 1, 1)
+		local baseT = primary and 0.1 or 0.88
+		local b = Create("TextButton", {
+			Parent = row, Size = UDim2.new(0.5, -4, 1, 0), LayoutOrder = order, BackgroundColor3 = base, BackgroundTransparency = baseT,
+			Text = text, TextSize = 13, FontFace = GetFont(Enum.FontWeight.SemiBold),
+			TextColor3 = primary and Color3.fromRGB(20, 20, 20) or Theme.Text, AutoButtonColor = false, BorderSizePixel = 0,
+		}, { Corner(6) })
+		if not primary then
+			Stroke(Theme.InElementBorder, 1, 0.5).Parent = b
+		end
+		Connect(b.MouseEnter, function() Tween(b, 0.1, { BackgroundTransparency = primary and 0 or 0.8 }) end)
+		Connect(b.MouseLeave, function() Tween(b, 0.1, { BackgroundTransparency = baseT }) end)
+		return b
+	end
+	local yesBtn = ChoiceButton(cfg.YesText or "Có", 1, true)
+	local noBtn = ChoiceButton(cfg.NoText or "Không", 2, false)
+
+	local closeBtn = Create("TextButton", {
+		Parent = card, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -6, 0, 6), Size = UDim2.fromOffset(22, 22),
+		BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+	}, { Corner(5) })
+	DrawX(closeBtn, 9, Theme.Text)
+
+	local N, answered, result, waiters = {}, false, nil, {}
+	local function Answer(v)
+		if answered then return end
+		answered, result = true, v
+		if card.Parent then
+			Tween(card, 0.25, { Position = UDim2.new(1, 30, 0, 0) })
+		end
+		task.delay(0.28, function() SafeDestroy(wrap) end)
+		if cfg.Callback then task.spawn(cfg.Callback, v) end
+		for _, th in ipairs(waiters) do task.spawn(th, v) end
+		table.clear(waiters)
+	end
+	function N:Close() Answer(nil) end
+	function N:Wait()
+		if answered then return result end
+		table.insert(waiters, coroutine.running())
+		return coroutine.yield()
+	end
+
+	Connect(yesBtn.MouseButton1Click, function() Answer(true) end)
+	Connect(noBtn.MouseButton1Click, function() Answer(false) end)
+	Connect(closeBtn.MouseEnter, function() Tween(closeBtn, 0.1, { BackgroundTransparency = 0.93 }) end)
+	Connect(closeBtn.MouseLeave, function() Tween(closeBtn, 0.1, { BackgroundTransparency = 1 }) end)
+	Connect(closeBtn.MouseButton1Click, function() Answer(nil) end)
+	Tween(card, 0.3, { Position = UDim2.new(0, 0, 0, 0) })
+
+	local dur = cfg.Duration
+	if dur == nil then dur = 15 end
+	if dur > 0 then
+		task.delay(dur, function() Answer(nil) end)
+	end
 	return N
 end
 
