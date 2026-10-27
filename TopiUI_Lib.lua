@@ -390,6 +390,7 @@ function FlowAnim:Hide(onDone)
 	local mp = main.AbsolutePosition - gui.AbsolutePosition
 	local tc, ts = self:_TogglePos()
 	local d = math.min(ts.X, ts.Y)
+	local sc = W._uiScale and W._uiScale.Scale or 1
 	local dur = Library.FlowDuration + 0.15
 
 	-- cac giot nuoc bay vao toggle
@@ -406,10 +407,10 @@ function FlowAnim:Hide(onDone)
 		end
 		local info = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 		local t = TweenService:Create(main, info, {
-			Size = UDim2.fromOffset(d, d),
+			Size = UDim2.fromOffset(d / sc, d / sc),
 			Position = UDim2.fromOffset(tc.X, tc.Y),
 		})
-		TweenService:Create(W._corner, info, { CornerRadius = UDim.new(0, d / 2) }):Play()
+		TweenService:Create(W._corner, info, { CornerRadius = UDim.new(0, d / 2 / sc) }):Play()
 		TweenService:Create(main, TweenInfo.new(dur * 0.85, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
 			GroupTransparency = 1,
 		}):Play()
@@ -445,24 +446,25 @@ function FlowAnim:Show(onDone)
 	local gui = GetGui()
 	local tc, ts = self:_TogglePos()
 	local d = math.min(ts.X, ts.Y)
+	local sc = W._uiScale and W._uiScale.Scale or 1
 	local size = W._hideSize or main.Size
 	local pos = W._hidePos or main.Position
 	local ga = gui.AbsoluteSize
 	local center = Vector2.new(pos.X.Scale * ga.X + pos.X.Offset, pos.Y.Scale * ga.Y + pos.Y.Offset)
 	local dur = Library.FlowDuration + 0.2
 
-	main.Size = UDim2.fromOffset(d, d)
+	main.Size = UDim2.fromOffset(d / sc, d / sc)
 	main.Position = UDim2.fromOffset(tc.X, tc.Y)
 	main.GroupTransparency = 1
-	W._corner.CornerRadius = UDim.new(0, d / 2)
+	W._corner.CornerRadius = UDim.new(0, d / 2 / sc)
 	main.Visible = true
 
 	self:_Pulse(1.22)
 	self:_Ripple()
 
 	-- giot nuoc bay ra tu toggle
-	local sx = size.X.Offset > 0 and size.X.Offset or 580
-	local sy = size.Y.Offset > 0 and size.Y.Offset or 460
+	local sx = (size.X.Offset > 0 and size.X.Offset or 580) * sc
+	local sy = (size.Y.Offset > 0 and size.Y.Offset or 460) * sc
 	for i = 1, 3 do
 		local to = Vector2.new(center.X + (math.random() - 0.5) * sx * 0.6, center.Y + (math.random() - 0.5) * sy * 0.6)
 		Droplet(tc, to, (i - 1) * 0.06, 0.4, math.random(12, 20), nil, true)
@@ -1388,15 +1390,16 @@ function Elements:AddDropdown(idx, cfg)
 		local n = #D.Values
 		local h = math.min(n, 6) * 36 + 4
 		local w = 170
+		local usc = Library._uiScale or 1
 		local bp, bs = box.AbsolutePosition, box.AbsoluteSize
 		local vp = gui.AbsoluteSize
-		local x = math.clamp(bp.X + bs.X - w, 4, vp.X - w - 4)
+		local x = math.clamp(bp.X + bs.X - w * usc, 4, vp.X - w * usc - 4)
 		local y = bp.Y + bs.Y + 4
-		if y + h > vp.Y - 4 then y = bp.Y - h - 4 end
+		if y + h * usc > vp.Y - 4 then y = bp.Y - h * usc - 4 end
 		holder = Create("Frame", {
 			Parent = gui, Position = UDim2.fromOffset(x, y - 8), Size = UDim2.fromOffset(w, 0), ZIndex = 50,
 			BackgroundColor3 = Theme.DropdownHolder, BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true,
-		}, { Corner(7), Stroke(Theme.DropdownBorder, 1, 1) })
+		}, { Corner(7), Stroke(Theme.DropdownBorder, 1, 1), Create("UIScale", { Scale = usc }) })
 		local myHolder = holder
 		TweenS(holder, 0.32, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, {
 			Size = UDim2.fromOffset(w, h), Position = UDim2.fromOffset(x, y), BackgroundTransparency = 0.05,
@@ -1694,12 +1697,27 @@ end
 function Library:CreateWindow(cfg)
 	cfg = cfg or {}
 	local Window = { Tabs = {}, TabCount = 0, Selected = nil, Minimized = false, Max = false }
-	local size = cfg.Size or UDim2.fromOffset(580, 460)
+	local BASE_W, BASE_H = 580, 460 -- kich thuoc thiet ke goc cua UI (scale = 1)
 	local tabWidth = cfg.TabWidth or 160
 	local transparency = cfg.Transparency or 0.5
 	local minimizeKey = cfg.MinimizeKey or Enum.KeyCode.LeftControl
 	local gui = GetGui()
 	local TITLE_H = 50
+
+	-- cfg.Size = kich thuoc HIEN THI cuoi cung. Nho hon 580x460 thi THU NHO CA UI (UIScale),
+	-- khong phai chi cat bot layout. Keo goc UI van doi layout binh thuong.
+	-- cfg.Scale (so) = ep scale thang, bo qua tinh tu Size.
+	local reqSize = cfg.Size or UDim2.fromOffset(BASE_W, BASE_H)
+	local ga0 = gui.AbsoluteSize
+	if ga0.X < 1 or ga0.Y < 1 then
+		local cam = workspace.CurrentCamera
+		ga0 = cam and cam.ViewportSize or Vector2.new(1280, 720)
+	end
+	local reqW = reqSize.X.Scale * ga0.X + reqSize.X.Offset
+	local reqH = reqSize.Y.Scale * ga0.Y + reqSize.Y.Offset
+	local startScale = cfg.Scale or math.clamp(math.min(reqW / BASE_W, reqH / BASE_H), 0.3, 3)
+	-- size luon luon la size LOGIC (truoc UIScale): hien thi = size * scale
+	local size = UDim2.fromOffset(reqW / startScale, reqH / startScale)
 
 	local MainCorner = Corner(8)
 	-- CanvasGroup de co the fade ca cua so + bo goc theo animation
@@ -1710,6 +1728,9 @@ function Library:CreateWindow(cfg)
 		MainCorner,
 		Stroke(Theme.AcrylicBorder, 1, 0.5),
 	})
+	local uiScale = Create("UIScale", { Name = "TopiScale", Parent = Main, Scale = startScale })
+	Library._uiScale = startScale
+	Window._uiScale = uiScale
 	local Bg = Create("Frame", {
 		Name = "Bg", Parent = Main, Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1),
 		BackgroundTransparency = transparency, BorderSizePixel = 0,
@@ -2067,6 +2088,26 @@ function Library:CreateWindow(cfg)
 		return setmetatable(tab, { __index = Elements })
 	end
 
+	-- Doi scale ca UI (1 = 580x460 goc). Giu nguyen tam UI.
+	function Window:SetScale(n)
+		n = math.clamp(tonumber(n) or 1, 0.3, 3)
+		uiScale.Scale = n
+		Library._uiScale = n
+	end
+
+	-- Dat lai kich thuoc HIEN THI, thu nho/phong to ca UI theo ti le (giong cfg.Size luc tao)
+	function Window:SetSize(udim)
+		local ga = gui.AbsoluteSize
+		local w = udim.X.Scale * ga.X + udim.X.Offset
+		local h = udim.Y.Scale * ga.Y + udim.Y.Offset
+		local sc = math.clamp(math.min(w / BASE_W, h / BASE_H), 0.3, 3)
+		uiScale.Scale = sc
+		Library._uiScale = sc
+		local logical = UDim2.fromOffset(w / sc, h / sc)
+		Main.Size = logical
+		if not self.Max then self._savedSize = logical end
+	end
+
 	function Window:SetTransparency(n)
 		Window._transparency = n
 		Bg.BackgroundTransparency = n
@@ -2188,8 +2229,9 @@ function Library:CreateWindow(cfg)
 			local T1 = 0.55
 			if winShown then
 				local info = TweenInfo.new(T1, Enum.EasingStyle.Back, Enum.EasingDirection.In)
-				TweenService:Create(Main, info, { Size = UDim2.fromOffset(56, 56) }):Play()
-				TweenService:Create(self._corner, info, { CornerRadius = UDim.new(0, 28) }):Play()
+				local sc = uiScale.Scale
+				TweenService:Create(Main, info, { Size = UDim2.fromOffset(56 / sc, 56 / sc) }):Play()
+				TweenService:Create(self._corner, info, { CornerRadius = UDim.new(0, 28 / sc) }):Play()
 			end
 			TweenS(toggle, T1, Enum.EasingStyle.Quart, Enum.EasingDirection.InOut, {
 				Position = UDim2.fromOffset(center.X, center.Y),
@@ -2323,7 +2365,7 @@ function Library:CreateWindow(cfg)
 			local info = TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 			if self._maxTween then self._maxTween:Cancel() end
 			self._maxTween = TweenService:Create(Main, info, {
-				Size = UDim2.new(1, -16, 1, -16),
+				Size = UDim2.new(1 / uiScale.Scale, -16 / uiScale.Scale, 1 / uiScale.Scale, -16 / uiScale.Scale),
 				Position = UDim2.fromScale(0.5, 0.5),
 			})
 			self._maxTween:Play()
@@ -2343,8 +2385,9 @@ function Library:CreateWindow(cfg)
 		local ga, gp = gui.AbsoluteSize, gui.AbsolutePosition
 		local fromSize, fromPos = Main.AbsoluteSize, Main.AbsolutePosition
 		local ss = self._savedSize
-		local toW = ss.X.Scale * ga.X + ss.X.Offset
-		local toH = ss.Y.Scale * ga.Y + ss.Y.Offset
+		local sc = uiScale.Scale
+		local toW = (ss.X.Scale * ga.X + ss.X.Offset) * sc
+		local toH = (ss.Y.Scale * ga.Y + ss.Y.Offset) * sc
 		-- giu nguyen vi tri con tro tren title bar theo ti le ngang
 		local rx = fromSize.X > 0 and math.clamp((pointer.X - fromPos.X) / fromSize.X, 0, 1) or 0.5
 		local yoff = math.clamp(pointer.Y - fromPos.Y, 0, TITLE_H)
@@ -2363,7 +2406,7 @@ function Library:CreateWindow(cfg)
 			local w = fromSize.X + (toW - fromSize.X) * e
 			local h = fromSize.Y + (toH - fromSize.Y) * e
 			local pt = self._pointer or pointer
-			Main.Size = UDim2.fromOffset(w, h)
+			Main.Size = UDim2.fromOffset(w / sc, h / sc)
 			Main.Position = UDim2.fromOffset(pt.X - rx * w + w / 2 - gp.X, pt.Y - yoff + h / 2 - gp.Y)
 			if a >= 1 then
 				conn:Disconnect()
@@ -2459,10 +2502,11 @@ function Library:CreateWindow(cfg)
 		if not resizing then return end
 		if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
 			local d = i.Position - resizeStart
-			local newX = math.max(startSize.X + d.X, 420)
-			local newY = math.max(startSize.Y + d.Y, 260)
+			local sc = uiScale.Scale
+			local newX = math.max(startSize.X + d.X, 420 * sc)
+			local newY = math.max(startSize.Y + d.Y, 260 * sc)
 
-			Main.Size = UDim2.fromOffset(newX, newY)
+			Main.Size = UDim2.fromOffset(newX / sc, newY / sc)
 
 			local guiAbs = gui.AbsolutePosition
 			local newCenterX = startPos3.X + newX / 2
