@@ -772,7 +772,7 @@ function Elements:AddSlider(idx, cfg)
 		end)
 		Connect(valLbl.Focused, function()
 			editing = true
-			valLbl.Text = tostring(S.Value)
+			valLbl.Text = "" -- xoa so cu, nguoi choi go so moi luon
 			Tween(valLbl, 0.15, { BackgroundTransparency = 0.5, BackgroundColor3 = Theme.InputFocused, TextTransparency = 0 })
 			TweenS(valStroke, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Transparency = 0.2 })
 		end)
@@ -872,7 +872,11 @@ function Elements:AddInput(idx, cfg)
 		Parent = box, AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 0),
 		Size = UDim2.new(1, -8, 0, 1), BackgroundColor3 = Theme.InputIndicator, BorderSizePixel = 0,
 	})
+	-- bam vao o nhap: xoa text cu; neu bo ra ma chua go gi thi tra lai gia tri cu
+	local prevText, typed, restoreTo = I.Value, false, nil
 	Connect(tb.Focused, function()
+		prevText, typed = I.Value, false
+		tb.Text = ""
 		Tween(box, 0.2, { BackgroundColor3 = Theme.InputFocused, BackgroundTransparency = 0.5 })
 		Tween(boxStroke, 0.2, { Color = Theme.Accent, Transparency = 0.2 })
 		TweenS(ring, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Size = UDim2.new(1, 8, 1, 8) })
@@ -887,6 +891,14 @@ function Elements:AddInput(idx, cfg)
 		TweenS(ring, 0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out, { Size = UDim2.new(1, -4, 1, -4) })
 		TweenS(ringStroke, 0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, { Transparency = 1 })
 		Tween(indicator, 0.25, { Size = UDim2.new(1, -8, 0, 1), BackgroundColor3 = Theme.InputIndicator })
+		if not typed then
+			if tb.Text ~= prevText then
+				restoreTo = prevText
+				tb.Text = prevText
+			end
+			I.Value = prevText
+			return
+		end
 		I.Value = tb.Text
 		if cfg.Finished then Fire(I, I.Value) end
 	end)
@@ -894,6 +906,11 @@ function Elements:AddInput(idx, cfg)
 		if cfg.Numeric then
 			local clean = tb.Text:gsub("[^%d%.%-]", "")
 			if clean ~= tb.Text then tb.Text = clean return end
+		end
+		if restoreTo ~= nil and tb.Text == restoreTo then restoreTo = nil return end
+		if tb:IsFocused() and not typed then
+			if tb.Text == "" then return end
+			typed = true
 		end
 		I.Value = tb.Text
 		if not cfg.Finished then Fire(I, I.Value) end
