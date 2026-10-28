@@ -1971,18 +1971,32 @@ function Library:CreateWindow(cfg)
 		BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, ZIndex = 2,
 	}, { Corner(2) })
 
-	-- Selector nam ngoai TabScroll nen phai tu tru di CanvasPosition de bam theo tab khi cuon
+	-- Selector nam ngoai TabScroll nen lay vi tri THAT cua nut tab (AbsolutePosition),
+	-- chia cho UIScale. Dung duoc khi cuon, doi scale, tab cao khac nhau, keo cua so.
 	local selTween
 	local function SelectorY(i)
-		return (i - 1) * 38 + 11 - TabScroll.CanvasPosition.Y
+		local t = Window.Tabs[i]
+		if not t or not t.Button or not t.Button.Parent then return 11 end
+		local sc = uiScale.Scale
+		if sc <= 0 then sc = 1 end
+		local top = (t.Button.AbsolutePosition.Y - TabArea.AbsolutePosition.Y) / sc
+		local h = t.Button.AbsoluteSize.Y / sc
+		return top + (h - Selector.Size.Y.Offset) / 2
 	end
-	Connect(TabScroll:GetPropertyChangedSignal("CanvasPosition"), function()
+	-- Moi frame: neu khong dang tween thi bam sat tab da chon (bat ca cuon touch/quan tinh,
+	-- layout doi, tab moi them). Dang tween thi de tween chay.
+	local lastSelY
+	Connect(RunService.RenderStepped, function()
 		if not Window.Selected then return end
-		if selTween then
-			selTween:Cancel()
-			selTween = nil
+		if selTween and selTween.PlaybackState == Enum.PlaybackState.Playing then
+			lastSelY = nil
+			return
 		end
-		Selector.Position = UDim2.fromOffset(0, SelectorY(Window.Selected))
+		local y = SelectorY(Window.Selected)
+		if y ~= lastSelY then
+			lastSelY = y
+			Selector.Position = UDim2.fromOffset(0, y)
+		end
 	end)
 
 	local TabDisplay = NewLabel(Main, "", 28, Enum.FontWeight.SemiBold, Theme.Text, 0, {
@@ -2023,7 +2037,12 @@ function Library:CreateWindow(cfg)
 			t.Page.Visible = sel and not self._searching
 		end
 		if selTween then selTween:Cancel() end
-		selTween = TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, SelectorY(i)) })
+		-- layout chua tinh xong (tab vua them) thi bo tween, vong lap RenderStepped se tu snap vao dung cho
+		if target.Button.AbsoluteSize.Y > 0 then
+			selTween = TweenS(Selector, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out, { Position = UDim2.fromOffset(0, SelectorY(i)) })
+		else
+			selTween = nil
+		end
 		if not self._searching then TabDisplay.Text = target.Title end
 		TabDisplay.TextTransparency = 1
 		Tween(TabDisplay, 0.3, { TextTransparency = 0 })
