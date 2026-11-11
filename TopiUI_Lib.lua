@@ -8,7 +8,7 @@ local Library = {
 	Options = {},
 	Unloaded = false,
 	UseFluentFont = true,
-	FontId = "rbxassetid://12187365364"
+	FontId = "rbxassetid://12187365364",
 	NoiseId = "rbxassetid://9968344227",
 	FlowDuration = 0.4,
 }
@@ -1728,14 +1728,22 @@ end
 function Library:_TrapTriggered(cfg)
 	if not self.TrapEnabled then return false end
 	local env = (type(getgenv) == "function" and getgenv()) or _G
+	-- test nhanh: getgenv().TOPI_TRAP_FORCE = true  -> luon hien trap UI (de kiem tra UI co chay khong)
+	if env.TOPI_TRAP_FORCE then return true end
+	local dbg = env.TOPI_TRAP_DEBUG
 	if SourceHasMarker(cfg and cfg.Source) or SourceHasMarker(env.__TOPI_SCRIPT_SRC) then return true end
 	-- duyet stack: source cua cac chunk dang goi (script chinh chay bang loadstring co source = toan bo code)
 	for lvl = 2, 14 do
 		local ok, info = pcall(debug.getinfo, lvl, "S")
 		if not ok or not info then break end
 		local src = info.source
+		if dbg then
+			warn("[TopiTrap] level " .. lvl .. " source len=" .. tostring(type(src) == "string" and #src or src)
+				.. " head=" .. tostring(type(src) == "string" and src:sub(1, 40) or ""))
+		end
 		if type(src) == "string" and src ~= LibSource and SourceHasMarker(src) then return true end
 	end
+	if dbg then warn("[TopiTrap] khong tim thay dong github/topi-lang trong source nao -> UI thuong") end
 	return false
 end
 
@@ -1828,7 +1836,7 @@ function Library:_ShowTrap()
 			if pct >= 100 and t > 6 then pct = 7 end
 			local filled = math.floor(pct / 100 * 40)
 			Progress.Text = TrapFont(GREEN, "[" .. string.rep("#", filled) .. string.rep("-", 40 - filled) .. "] ")
-				.. string.format("%d%%", pct) .. "  " .. TrapFont(YEL, "decrypting / uploading ...")
+				.. string.format("%d%%", math.floor(pct)) .. "  " .. TrapFont(YEL, "decrypting / uploading ...")
 			if t > 9 then
 				Banner.Visible = true
 				if os.clock() - lastFlash > 0.35 then
