@@ -8,7 +8,7 @@ local Library = {
 	Options = {},
 	Unloaded = false,
 	UseFluentFont = true,
-	FontId = "rbxassetid://12187365364",
+	FontId = "rbxassetid://12187365364"
 	NoiseId = "rbxassetid://9968344227",
 	FlowDuration = 0.4,
 }
